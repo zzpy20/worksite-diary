@@ -1,56 +1,44 @@
-# Welcome to your Expo app 👋
+# Worksite Diary
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+[中文说明](./README.zh-CN.md)
 
-## Get started
+A simple iOS app for logging daily worksite activity — a hands-on cloud portfolio project covering mobile development, a Postgres backend, and a companion web admin panel.
 
-1. Install dependencies
+## Features
 
-   ```bash
-   npm install
-   ```
+- Email/password sign-in (Supabase Auth), with each user only ever seeing their own entries
+- Log a daily entry: job site, date, start/finish time (native pickers), comments, tasks (quick-select presets or free text), and the site's GPS location — reverse-geocoded into a plain-English address
+- Attach photos from your library or take them with the camera; tap any photo to view full-size and swipe between them
+- Edit or delete any entry after saving
+- Export an entry as a PDF and share it through the native iOS share sheet
+- A separate web admin panel for reviewing and editing every user's entries
 
-2. Start the app
+## Tech stack
 
-   ```bash
-   npx expo start
-   ```
+- [React Native](https://reactnative.dev/) + [Expo](https://expo.dev/) (SDK 54) + TypeScript
+- [Expo Router](https://docs.expo.dev/router/introduction/) for file-based navigation
+- [Supabase](https://supabase.com/) (Postgres, Auth, Storage) as the backend — accessed directly from the client, secured with row-level security
+- [EAS Build](https://docs.expo.dev/build/introduction/) for compiling and signing the iOS build
 
-In the output, you'll find options to open the app in a
+## Project structure
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+src/
+  app/            expo-router screens (auth, tabs, entry detail/edit)
+  components/     shared UI (entry form, photo viewer, themed primitives)
+  lib/            Supabase client, data access, PDF export, formatting helpers
+  types/          shared TypeScript types
+supabase/         SQL migrations, run in order in the Supabase SQL Editor
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Getting started
 
-### Other setup steps
+1. `npm install`
+2. Create a [Supabase](https://supabase.com/) project.
+3. In the Supabase SQL Editor, run the files in `supabase/` **in order**: `schema.sql`, `002_admin_panel.sql`, `003_comments_and_location.sql`, `004_address.sql`.
+4. Copy `.env.local.example` to `.env.local` and fill in your project's URL and anon/publishable key (Project Settings → API).
+5. `npx expo start` and open with Expo Go, or `npx expo run:ios` for a standalone build on a connected device.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## Admin panel
 
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+A lightweight static web app (plain HTML/CSS/JS, no build step) lets an account flagged `is_admin` in the `profiles` table sign in and manage every user's entries — inline edit, photo removal, and delete. It talks to the same Supabase project directly, authorized entirely through row-level security policies (see `supabase/002_admin_panel.sql`), so it needs no backend server of its own.
