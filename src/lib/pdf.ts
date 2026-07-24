@@ -54,9 +54,13 @@ function buildHtml(entry: Entry): string {
 </html>`;
 }
 
+// A4 at 72 PPI (points).
+const A4_WIDTH = 595;
+const A4_HEIGHT = 842;
+
 export async function shareEntryAsPdf(entry: Entry): Promise<void> {
   const html = buildHtml(entry);
-  const { uri } = await Print.printToFileAsync({ html });
+  const { uri } = await Print.printToFileAsync({ html, width: A4_WIDTH, height: A4_HEIGHT });
 
   const canShare = await Sharing.isAvailableAsync();
   if (!canShare) {
