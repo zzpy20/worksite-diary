@@ -8,9 +8,9 @@ A simple iOS app for logging daily worksite activity — a hands-on cloud portfo
 
 - Email/password sign-in (Supabase Auth), with each user only ever seeing their own entries
 - Log a daily entry: job site, date, start/finish time (native pickers), comments, tasks (quick-select presets or free text), and the site's GPS location — reverse-geocoded into a plain-English address
-- Attach photos from your library or take them with the camera; tap any photo to view full-size and swipe between them
+- Attach photos from your library or take them with the camera; tap any photo to view full-size, pinch or double-tap to zoom, and swipe between them
 - Edit or delete any entry after saving
-- Export an entry as a PDF and share it through the native iOS share sheet
+- Export an entry as an A4 PDF and share it through the native iOS share sheet
 - A separate web admin panel for reviewing and editing every user's entries
 
 ## Tech stack
@@ -41,4 +41,6 @@ supabase/         SQL migrations, run in order in the Supabase SQL Editor
 
 ## Admin panel
 
-A lightweight static web app (plain HTML/CSS/JS, no build step) lets an account flagged `is_admin` in the `profiles` table sign in and manage every user's entries — inline edit, photo removal, and delete. It talks to the same Supabase project directly, authorized entirely through row-level security policies (see `supabase/002_admin_panel.sql`), so it needs no backend server of its own.
+A lightweight static web app (plain HTML/CSS/JS, no build step) lets an account flagged `is_admin` in the `profiles` table sign in and manage every user's entries — search, inline edit, photo removal, and delete. It talks to the same Supabase project directly, authorized entirely through row-level security policies (see `supabase/002_admin_panel.sql`), so it needs no backend server of its own.
+
+Live at [worksite-diary.plos.xyz](https://worksite-diary.plos.xyz), deployed on a Cloudflare Worker. Its source isn't part of this repository — only the RLS policies that authorize it live here.
