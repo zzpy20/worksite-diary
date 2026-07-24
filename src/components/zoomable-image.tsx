@@ -136,7 +136,12 @@ export function ZoomableImage({ uri, onClose, onZoomedChange }: Props) {
   return (
     <GestureDetector gesture={composedGesture}>
       <Animated.View style={styles.page}>
-        <AnimatedImage source={{ uri }} style={[styles.image, animatedStyle]} contentFit="contain" />
+        <AnimatedImage
+          source={{ uri }}
+          style={[styles.image, animatedStyle]}
+          contentFit="contain"
+          cachePolicy="memory-disk"
+        />
       </Animated.View>
     </GestureDetector>
   );
