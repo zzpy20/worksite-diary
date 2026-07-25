@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Platform, Pressable, RefreshControl, StyleSheet } from 'react-native';
+import { ActivityIndicator, FlatList, Platform, Pressable, RefreshControl, StyleSheet, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -34,6 +34,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [jumpDate, setJumpDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [searchQuery, setSearchQuery] = useState('');
   const listRef = useRef<FlatList<ListItem>>(null);
 
   const load = useCallback(async () => {
@@ -52,12 +53,17 @@ export default function HomeScreen() {
     }, [load])
   );
 
+  const query = searchQuery.trim().toLowerCase();
+  const filteredEntries = query
+    ? entries.filter((entry) => entry.site.toLowerCase().includes(query) || (entry.tasks ?? '').toLowerCase().includes(query))
+    : entries;
+
   function jumpToDate(target: Date) {
-    if (entries.length === 0) return;
+    if (filteredEntries.length === 0) return;
     const targetTime = target.getTime();
     let closestIndex = 0;
     let closestDiff = Infinity;
-    entries.forEach((entry, index) => {
+    filteredEntries.forEach((entry, index) => {
       const diff = Math.abs(parseISODate(entry.date).getTime() - targetTime);
       if (diff < closestDiff) {
         closestDiff = diff;
@@ -90,9 +96,9 @@ export default function HomeScreen() {
   }
 
   const displayData: ListItem[] =
-    viewMode === 'grid' && entries.length % GRID_COLUMNS !== 0
-      ? [...entries, { id: GRID_PLACEHOLDER_ID }]
-      : entries;
+    viewMode === 'grid' && filteredEntries.length % GRID_COLUMNS !== 0
+      ? [...filteredEntries, { id: GRID_PLACEHOLDER_ID }]
+      : filteredEntries;
 
   return (
     <ThemedView style={styles.flex}>
@@ -127,6 +133,27 @@ export default function HomeScreen() {
           )}
         </ThemedView>
 
+        {entries.length > 0 && (
+          <ThemedView type="backgroundElement" style={styles.searchRow}>
+            <SymbolView name="magnifyingglass" size={16} tintColor={theme.textSecondary} />
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search by site or task"
+              placeholderTextColor={theme.textSecondary}
+              style={[styles.searchInput, { color: theme.text }]}
+              returnKeyType="search"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 && (
+              <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
+                <SymbolView name="xmark.circle.fill" size={16} tintColor={theme.textSecondary} />
+              </Pressable>
+            )}
+          </ThemedView>
+        )}
+
         <FlatList
           ref={listRef}
           key={viewMode}
@@ -152,7 +179,7 @@ export default function HomeScreen() {
           ListEmptyComponent={
             <ThemedView style={styles.empty}>
               <ThemedText themeColor="textSecondary">
-                No entries yet. Tap &quot;New Entry&quot; to log your first day.
+                {query ? 'No entries match your search.' : 'No entries yet. Tap "New Entry" to log your first day.'}
               </ThemedText>
             </ThemedView>
           }
@@ -228,6 +255,17 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.two,
   },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    marginHorizontal: Spacing.four,
+    marginBottom: Spacing.three,
+    paddingHorizontal: Spacing.three,
+    borderRadius: Spacing.three,
+    height: 44,
+  },
+  searchInput: { flex: 1, fontSize: 16, height: 44 },
   listContent: { paddingHorizontal: Spacing.three, gap: Spacing.two },
   empty: { paddingHorizontal: Spacing.four, paddingTop: Spacing.six, alignItems: 'center' },
   row: { marginBottom: Spacing.two },
