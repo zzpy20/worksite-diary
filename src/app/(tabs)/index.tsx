@@ -164,11 +164,14 @@ export default function HomeScreen() {
                 onPress={() => router.push(`/entry/${item.id}`)}
                 style={({ pressed }) => [styles.gridItem, pressed && styles.pressed]}>
                 <ThemedView type="backgroundElement" style={styles.gridCard}>
-                  {item.photo_urls[0] ? (
-                    <Image source={{ uri: item.photo_urls[0] }} style={styles.gridThumb} />
-                  ) : (
-                    <ThemedView type="backgroundSelected" style={styles.gridThumb} />
-                  )}
+                  <ThemedView style={styles.gridThumbWrap}>
+                    {item.photo_urls[0] ? (
+                      <Image source={{ uri: item.photo_urls[0] }} style={styles.gridThumb} />
+                    ) : (
+                      <ThemedView type="backgroundSelected" style={styles.gridThumb} />
+                    )}
+                    {item.pending && <ThemedView style={styles.pendingDot} />}
+                  </ThemedView>
                   <ThemedView style={styles.gridText} type="backgroundElement">
                     <ThemedText type="small" themeColor="textSecondary">
                       {formatDateShort(item.date)}
@@ -184,15 +187,18 @@ export default function HomeScreen() {
                 onPress={() => router.push(`/entry/${item.id}`)}
                 style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
                 <ThemedView type="backgroundElement" style={styles.card}>
-                  {item.photo_urls[0] ? (
-                    <Image source={{ uri: item.photo_urls[0] }} style={styles.thumb} />
-                  ) : (
-                    <ThemedView type="backgroundSelected" style={styles.thumb} />
-                  )}
+                  <ThemedView style={styles.thumbWrap}>
+                    {item.photo_urls[0] ? (
+                      <Image source={{ uri: item.photo_urls[0] }} style={styles.thumb} />
+                    ) : (
+                      <ThemedView type="backgroundSelected" style={styles.thumb} />
+                    )}
+                    {item.pending && <ThemedView style={styles.pendingDot} />}
+                  </ThemedView>
                   <ThemedView style={styles.cardText} type="backgroundElement">
                     <ThemedText type="smallBold">{item.site || 'Untitled site'}</ThemedText>
                     <ThemedText type="small" themeColor="textSecondary">
-                      {item.date} · Saved {formatSavedAt(item.created_at)}
+                      {item.pending ? 'Pending sync' : `${item.date} · Saved ${formatSavedAt(item.created_at)}`}
                     </ThemedText>
                     {item.tasks ? (
                       <ThemedText type="small" numberOfLines={1} themeColor="textSecondary">
@@ -234,10 +240,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   thumb: { width: 56, height: 56, borderRadius: Spacing.two },
+  thumbWrap: { width: 56, height: 56 },
   cardText: { flex: 1, gap: 2 },
   gridRow: { gap: Spacing.two },
   gridItem: { flex: 1, marginBottom: Spacing.two },
   gridCard: { borderRadius: Spacing.three, overflow: 'hidden' },
+  gridThumbWrap: {},
   gridThumb: { width: '100%', aspectRatio: 1 },
   gridText: { padding: Spacing.two, gap: 2 },
+  pendingDot: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#F5A623',
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
+  },
 });

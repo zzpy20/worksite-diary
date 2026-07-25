@@ -3,9 +3,9 @@ import Checkbox from 'expo-checkbox';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { SFSymbol, SymbolView } from 'expo-symbols';
-import { PropsWithChildren, useEffect, useRef, useState } from 'react';
+import { PropsWithChildren, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -32,7 +32,8 @@ import {
   parseTimeString,
 } from '@/lib/date-format';
 import { useTheme } from '@/hooks/use-theme';
-import { createEntry, updateEntry } from '@/lib/entries';
+import { createEntry, listRecentSites, updateEntry } from '@/lib/entries';
+import { isOnline } from '@/lib/offline-queue';
 import { addTaskLabel, removeTaskLabel } from '@/lib/task-labels';
 import type { Entry } from '@/types/entry';
 
@@ -114,9 +115,11 @@ type Props = {
   mode: 'create' | 'edit';
   entryId?: string;
   initialEntry?: Entry;
+  /** Prefill for a duplicated entry (create mode only) — day-specific fields are left blank. */
+  seed?: { site?: string; tasks?: string; comments?: string };
 };
 
-export function EntryForm({ mode, entryId, initialEntry }: Props) {
+export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -133,18 +136,21 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
   }, []);
 
   const [date, setDate] = useState(() => (initialEntry ? parseISODate(initialEntry.date) : new Date()));
-  const [site, setSite] = useState(initialEntry?.site ?? '');
+  const [site, setSite] = useState(initialEntry?.site ?? seed?.site ?? '');
   const [startTime, setStartTime] = useState<Date | null>(() =>
     initialEntry?.start_time ? parseTimeString(initialEntry.start_time) : null
   );
   const [finishTime, setFinishTime] = useState<Date | null>(() =>
     initialEntry?.finish_time ? parseTimeString(initialEntry.finish_time) : null
   );
-  const [comments, setComments] = useState(initialEntry?.comments ?? '');
-  const [tasks, setTasks] = useState(initialEntry?.tasks ?? '');
+  const [comments, setComments] = useState(initialEntry?.comments ?? seed?.comments ?? '');
+  const [tasks, setTasks] = useState(initialEntry?.tasks ?? seed?.tasks ?? '');
   const [checkedTasks, setCheckedTasks] = useState<Record<string, boolean>>(() =>
-    initialCheckedTasks(initialEntry?.tasks)
+    initialCheckedTasks(initialEntry?.tasks ?? seed?.tasks)
   );
+  const [siteSuggestions, setSiteSuggestions] = useState<string[]>([]);
+  const [siteFocused, setSiteFocused] = useState(false);
+  const siteBlurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [latitude, setLatitude] = useState<number | null>(initialEntry?.latitude ?? null);
   const [longitude, setLongitude] = useState<number | null>(initialEntry?.longitude ?? null);
   const [address, setAddress] = useState<string | null>(initialEntry?.address ?? null);
@@ -185,6 +191,34 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
       photoUris.some((uri, i) => uri !== b.photoUris[i])
     );
   }
+
+  useFocusEffect(
+    useCallback(() => {
+      listRecentSites().then(setSiteSuggestions).catch(() => {});
+    }, [])
+  );
+
+  function handleSiteFocus() {
+    if (siteBlurTimeout.current) clearTimeout(siteBlurTimeout.current);
+    setSiteFocused(true);
+  }
+
+  function handleSiteBlur() {
+    // Delay so a tap on a suggestion chip registers before the list disappears.
+    siteBlurTimeout.current = setTimeout(() => setSiteFocused(false), 150);
+  }
+
+  function selectSiteSuggestion(value: string) {
+    if (siteBlurTimeout.current) clearTimeout(siteBlurTimeout.current);
+    setSite(value);
+    setSiteFocused(false);
+  }
+
+  const siteQuery = site.trim().toLowerCase();
+  const filteredSiteSuggestions = siteSuggestions
+    .filter((s) => s.toLowerCase() !== siteQuery && (siteQuery === '' || s.toLowerCase().includes(siteQuery)))
+    .slice(0, 5);
+  const showSiteSuggestions = siteFocused && filteredSiteSuggestions.length > 0;
 
   function openDatePicker() {
     if (Platform.OS === 'android') {
@@ -361,6 +395,8 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
         photoUris,
       };
 
+      const wasOffline = !(await isOnline());
+
       if (mode === 'edit' && entryId) {
         await updateEntry(entryId, input, initialEntry?.photo_urls ?? []);
         router.replace(`/entry/${entryId}`);
@@ -368,6 +404,10 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
         await createEntry(input);
         resetForm();
         router.navigate('/');
+      }
+
+      if (wasOffline) {
+        Alert.alert('Saved offline', "This entry will sync automatically once you're back online.");
       }
     } catch (error) {
       Alert.alert('Could not save entry', error instanceof Error ? error.message : String(error));
@@ -396,6 +436,8 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
                 style={[styles.rowInput, { color: theme.text }]}
                 value={site}
                 onChangeText={setSite}
+                onFocus={handleSiteFocus}
+                onBlur={handleSiteBlur}
                 placeholder="e.g. Boggo Road"
                 placeholderTextColor={theme.textSecondary}
                 textAlign="right"
@@ -404,6 +446,22 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
           </Card>
           {showDatePicker && (
             <DateTimePicker value={date} mode="date" display="spinner" onChange={(_e, d) => d && setDate(d)} />
+          )}
+          {showSiteSuggestions && (
+            <View style={styles.suggestionRow}>
+              {filteredSiteSuggestions.map((suggestion) => (
+                <Pressable
+                  key={suggestion}
+                  onPress={() => selectSiteSuggestion(suggestion)}
+                  style={({ pressed }) => [
+                    styles.suggestionChip,
+                    { backgroundColor: theme.backgroundElement },
+                    pressed && styles.pressed,
+                  ]}>
+                  <ThemedText type="small">{suggestion}</ThemedText>
+                </Pressable>
+              ))}
+            </View>
           )}
 
           <SectionLabel>Hours</SectionLabel>
@@ -586,6 +644,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   fullWidthPicker: { width: '100%', marginTop: Spacing.two },
+  suggestionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+    marginTop: Spacing.two,
+    paddingHorizontal: Spacing.one,
+  },
+  suggestionChip: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one,
+    borderRadius: 999,
+  },
   presetRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

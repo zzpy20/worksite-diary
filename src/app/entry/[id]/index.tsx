@@ -1,7 +1,7 @@
 import { SymbolView } from 'expo-symbols';
 import { Image } from 'expo-image';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -25,9 +25,16 @@ export default function EntryDetailScreen() {
   const [sharing, setSharing] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    getEntry(id).then(setEntry).finally(() => setLoading(false));
-  }, [id]);
+  useFocusEffect(
+    useCallback(() => {
+      getEntry(id)
+        .then(setEntry)
+        .catch(() => {
+          // Offline or transient error — keep showing whatever we already have, if anything.
+        })
+        .finally(() => setLoading(false));
+    }, [id])
+  );
 
   async function handleShare() {
     if (!entry) return;
@@ -39,6 +46,19 @@ export default function EntryDetailScreen() {
     } finally {
       setSharing(false);
     }
+  }
+
+  function handleDuplicate() {
+    if (!entry) return;
+    router.push({
+      pathname: '/new-entry',
+      params: {
+        seedSite: entry.site,
+        seedTasks: entry.tasks ?? '',
+        seedComments: entry.comments ?? '',
+        seedNonce: String(Date.now()),
+      },
+    });
   }
 
   function handleDelete() {
@@ -89,7 +109,7 @@ export default function EntryDetailScreen() {
               <ThemedText type="title">{entry.site}</ThemedText>
               <ThemedText themeColor="textSecondary">{entry.date}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                Saved {formatSavedAt(entry.created_at)}
+                {entry.pending ? 'Pending sync' : `Saved ${formatSavedAt(entry.created_at)}`}
               </ThemedText>
             </ThemedView>
             <ThemedView style={styles.actions}>
@@ -101,6 +121,15 @@ export default function EntryDetailScreen() {
                   pressed && styles.pressed,
                 ]}>
                 <ThemedText type="small">Edit</ThemedText>
+              </Pressable>
+              <Pressable
+                onPress={handleDuplicate}
+                style={({ pressed }) => [
+                  styles.shareButton,
+                  { backgroundColor: theme.backgroundElement },
+                  pressed && styles.pressed,
+                ]}>
+                <SymbolView name="doc.on.doc" size={18} tintColor={theme.text} />
               </Pressable>
               <Pressable
                 onPress={handleShare}

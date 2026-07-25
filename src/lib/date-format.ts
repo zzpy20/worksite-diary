@@ -31,6 +31,29 @@ export function parseTimeString(s: string): Date | null {
   return d;
 }
 
+/** Hours between two "h:mm AM/PM" strings, treating a negative span as crossing midnight. */
+export function hoursBetween(start: string | null, finish: string | null): number {
+  if (!start || !finish) return 0;
+  const startDate = parseTimeString(start);
+  const finishDate = parseTimeString(finish);
+  if (!startDate || !finishDate) return 0;
+  let minutes = (finishDate.getTime() - startDate.getTime()) / 60000;
+  if (minutes < 0) minutes += 24 * 60;
+  return minutes / 60;
+}
+
+export function startOfWeek(d: Date): Date {
+  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = date.getDay();
+  const diff = (day === 0 ? -6 : 1) - day;
+  date.setDate(date.getDate() + diff);
+  return date;
+}
+
+export function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
 export function formatSavedAt(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString(undefined, {
