@@ -233,6 +233,7 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
     .filter((s) => s.toLowerCase() !== siteQuery && (siteQuery === '' || s.toLowerCase().includes(siteQuery)))
     .slice(0, 5);
   const showSiteSuggestions = siteFocused && filteredSiteSuggestions.length > 0;
+  const hasLocalPhotos = photoUris.some((uri) => !uri.startsWith('http'));
 
   function openDatePicker() {
     if (Platform.OS === 'android') {
@@ -629,7 +630,12 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
             disabled={saving || pickingPhoto}
             onPress={handleSave}>
             {saving ? (
-              <ActivityIndicator size="small" color="#ffffff" />
+              <ThemedView style={styles.savingRow}>
+                <ActivityIndicator size="small" color="#ffffff" />
+                <ThemedText type="smallBold" themeColor="background">
+                  {hasLocalPhotos ? 'Uploading photos…' : 'Saving…'}
+                </ThemedText>
+              </ThemedView>
             ) : (
               <ThemedText type="smallBold" themeColor="background" style={styles.saveButtonText}>
                 {mode === 'edit' ? 'Save Changes' : 'Save Entry'}
@@ -750,5 +756,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   saveButtonText: { textAlign: 'center' },
+  savingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, backgroundColor: 'transparent' },
   pressed: { opacity: 0.7 },
 });
