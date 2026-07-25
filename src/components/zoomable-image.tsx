@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import { Dimensions, StyleSheet } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Directions, Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 const screenWidth = Dimensions.get('window').width;
@@ -19,10 +19,10 @@ function clamp(value: number, min: number, max: number) {
 type Props = {
   uri: string;
   onClose: () => void;
-  onZoomedChange: (isZoomed: boolean) => void;
+  onSwipe: (direction: 1 | -1) => void;
 };
 
-export function ZoomableImage({ uri, onClose, onZoomedChange }: Props) {
+export function ZoomableImage({ uri, onClose, onSwipe }: Props) {
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -30,15 +30,7 @@ export function ZoomableImage({ uri, onClose, onZoomedChange }: Props) {
   const savedTranslateX = useSharedValue(0);
   const savedTranslateY = useSharedValue(0);
   const isZoomedSV = useSharedValue(false);
-  const [isZoomed, setIsZoomedState] = useState(false);
-
-  const setIsZoomed = useCallback(
-    (value: boolean) => {
-      setIsZoomedState(value);
-      onZoomedChange(value);
-    },
-    [onZoomedChange],
-  );
+  const [isZoomed, setIsZoomed] = useState(false);
 
   const pinchGesture = Gesture.Pinch()
     .onUpdate((e) => {
@@ -127,7 +119,24 @@ export function ZoomableImage({ uri, onClose, onZoomedChange }: Props) {
     .requireExternalGestureToFail(doubleTapGesture);
 
   const tapGesture = Gesture.Exclusive(doubleTapGesture, singleTapGesture);
-  const composedGesture = Gesture.Simultaneous(pinchGesture, panGesture, tapGesture);
+
+  // No slide/momentum animation — a swipe just jumps straight to the next/previous photo.
+  const swipeNextGesture = Gesture.Fling()
+    .direction(Directions.LEFT)
+    .enabled(!isZoomed)
+    .onEnd(() => runOnJS(onSwipe)(1));
+
+  const swipePrevGesture = Gesture.Fling()
+    .direction(Directions.RIGHT)
+    .enabled(!isZoomed)
+    .onEnd(() => runOnJS(onSwipe)(-1));
+
+  const composedGesture = Gesture.Simultaneous(
+    pinchGesture,
+    panGesture,
+    tapGesture,
+    Gesture.Race(swipeNextGesture, swipePrevGesture),
+  );
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }, { translateY: translateY.value }, { scale: scale.value }],
