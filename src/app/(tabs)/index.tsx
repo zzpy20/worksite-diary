@@ -1,20 +1,26 @@
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet } from 'react-native';
+import { SymbolView } from 'expo-symbols';
+import { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, Platform, Pressable, RefreshControl, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, Spacing } from '@/constants/theme';
-import { formatSavedAt } from '@/lib/date-format';
+import { formatSavedAt, parseISODate } from '@/lib/date-format';
 import { listEntries } from '@/lib/entries';
+import { useTheme } from '@/hooks/use-theme';
 import type { Entry } from '@/types/entry';
 
 export default function HomeScreen() {
+  const theme = useTheme();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [jumpDate, setJumpDate] = useState(new Date());
+  const listRef = useRef<FlatList<Entry>>(null);
 
   const load = useCallback(async () => {
     try {
@@ -32,6 +38,35 @@ export default function HomeScreen() {
     }, [load])
   );
 
+  function jumpToDate(target: Date) {
+    if (entries.length === 0) return;
+    const targetTime = target.getTime();
+    let closestIndex = 0;
+    let closestDiff = Infinity;
+    entries.forEach((entry, index) => {
+      const diff = Math.abs(parseISODate(entry.date).getTime() - targetTime);
+      if (diff < closestDiff) {
+        closestDiff = diff;
+        closestIndex = index;
+      }
+    });
+    listRef.current?.scrollToIndex({ index: closestIndex, animated: true, viewPosition: 0.3 });
+  }
+
+  function handleDatePicked(selected?: Date) {
+    if (!selected) return;
+    setJumpDate(selected);
+    jumpToDate(selected);
+  }
+
+  function openAndroidDatePicker() {
+    DateTimePickerAndroid.open({
+      value: jumpDate,
+      mode: 'date',
+      onChange: (_event, selected) => handleDatePicked(selected),
+    });
+  }
+
   if (loading) {
     return (
       <ThemedView style={styles.centered}>
@@ -43,11 +78,25 @@ export default function HomeScreen() {
   return (
     <ThemedView style={styles.flex}>
       <SafeAreaView style={styles.flex} edges={['top']}>
-        <ThemedText type="title" style={styles.header}>
-          Diary
-        </ThemedText>
+        <ThemedView style={styles.headerRow}>
+          <ThemedText type="title">Diary</ThemedText>
+          {entries.length > 0 &&
+            (Platform.OS === 'android' ? (
+              <Pressable onPress={openAndroidDatePicker} hitSlop={8} style={({ pressed }) => pressed && styles.pressed}>
+                <SymbolView name="calendar" size={22} tintColor={theme.text} />
+              </Pressable>
+            ) : (
+              <DateTimePicker
+                value={jumpDate}
+                mode="date"
+                display="compact"
+                onChange={(_event, selected) => handleDatePicked(selected)}
+              />
+            ))}
+        </ThemedView>
 
         <FlatList
+          ref={listRef}
           data={entries}
           keyExtractor={(item) => item.id}
           contentContainerStyle={[styles.listContent, { paddingBottom: BottomTabInset + Spacing.four }]}
@@ -60,6 +109,10 @@ export default function HomeScreen() {
               }}
             />
           }
+          onScrollToIndexFailed={(info) => {
+            listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+            setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, animated: true }), 100);
+          }}
           ListEmptyComponent={
             <ThemedView style={styles.empty}>
               <ThemedText themeColor="textSecondary">
@@ -100,7 +153,14 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: { paddingHorizontal: Spacing.four, paddingTop: Spacing.three, paddingBottom: Spacing.two },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.two,
+  },
   listContent: { paddingHorizontal: Spacing.three, gap: Spacing.two },
   empty: { paddingHorizontal: Spacing.four, paddingTop: Spacing.six, alignItems: 'center' },
   row: { marginBottom: Spacing.two },
