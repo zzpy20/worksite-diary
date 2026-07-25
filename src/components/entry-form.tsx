@@ -448,20 +448,20 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
             <DateTimePicker value={date} mode="date" display="spinner" onChange={(_e, d) => d && setDate(d)} />
           )}
           {showSiteSuggestions && (
-            <View style={styles.suggestionRow}>
-              {filteredSiteSuggestions.map((suggestion) => (
+            <ThemedView type="backgroundElement" style={styles.suggestionList}>
+              {filteredSiteSuggestions.map((suggestion, index) => (
                 <Pressable
                   key={suggestion}
                   onPress={() => selectSiteSuggestion(suggestion)}
                   style={({ pressed }) => [
-                    styles.suggestionChip,
-                    { backgroundColor: theme.backgroundElement },
+                    styles.suggestionItem,
+                    index > 0 && styles.suggestionItemDivider,
                     pressed && styles.pressed,
                   ]}>
-                  <ThemedText type="small">{suggestion}</ThemedText>
+                  <ThemedText>{suggestion}</ThemedText>
                 </Pressable>
               ))}
-            </View>
+            </ThemedView>
           )}
 
           <SectionLabel>Hours</SectionLabel>
@@ -644,17 +644,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   fullWidthPicker: { width: '100%', marginTop: Spacing.two },
-  suggestionRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
+  suggestionList: {
     marginTop: Spacing.two,
-    paddingHorizontal: Spacing.one,
+    borderRadius: Spacing.three,
+    overflow: 'hidden',
   },
-  suggestionChip: {
+  suggestionItem: {
+    minHeight: 48,
+    justifyContent: 'center',
     paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.one,
-    borderRadius: 999,
+    paddingVertical: Spacing.three,
+  },
+  suggestionItemDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: DIVIDER_COLOR,
   },
   presetRow: {
     flexDirection: 'row',
