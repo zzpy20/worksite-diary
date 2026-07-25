@@ -107,8 +107,9 @@ function entryFields(input: NewEntryInput) {
 
 export async function createEntry(input: NewEntryInput): Promise<Entry> {
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const user = session?.user;
   if (!user) throw new Error('Not signed in');
 
   if (!(await isOnline())) {
@@ -142,8 +143,9 @@ export async function createEntry(input: NewEntryInput): Promise<Entry> {
  */
 export async function updateEntry(id: string, input: NewEntryInput, originalPhotoUrls: string[]): Promise<Entry | null> {
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const user = session?.user;
   if (!user) throw new Error('Not signed in');
 
   if (!(await isOnline())) {
@@ -205,8 +207,9 @@ async function syncCreate(entry: Entry): Promise<void> {
 
 async function syncUpdate(id: string, input: NewEntryInput, originalPhotoUrls: string[]): Promise<void> {
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const user = session?.user;
   if (!user) throw new Error('Not signed in');
 
   const keptRemoteUrls = input.photoUris.filter((uri) => uri.startsWith('http'));
