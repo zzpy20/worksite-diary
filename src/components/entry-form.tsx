@@ -5,10 +5,11 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { SFSymbol, SymbolView } from 'expo-symbols';
-import { PropsWithChildren, useRef, useState } from 'react';
+import { PropsWithChildren, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -118,6 +119,19 @@ type Props = {
 export function EntryForm({ mode, entryId, initialEntry }: Props) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
   const [date, setDate] = useState(() => (initialEntry ? parseISODate(initialEntry.date) : new Date()));
   const [site, setSite] = useState(initialEntry?.site ?? '');
   const [startTime, setStartTime] = useState<Date | null>(() =>
@@ -510,7 +524,11 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
           </Card>
         </ScrollView>
 
-        <ThemedView style={[styles.footer, { paddingBottom: insets.bottom + FLOATING_TAB_BAR_CLEARANCE }]}>
+        <ThemedView
+          style={[
+            styles.footer,
+            { paddingBottom: keyboardVisible ? Spacing.two : insets.bottom + FLOATING_TAB_BAR_CLEARANCE },
+          ]}>
           <Pressable
             style={({ pressed }) => [
               styles.cancelButton,
