@@ -10,6 +10,7 @@
 - 邮箱 + 密码登录（Supabase Auth），每个用户只能看到自己的记录
 - 记录每日条目：工地名称（自动联想最近使用过的工地）、日期、上下班时间（原生选择器）、备注、任务（预设选项快速勾选或自由填写），以及工地的 GPS 定位——自动反查为易读的具体地址
 - 从相册选择照片，或直接用相机拍摄；点击照片可全屏查看，支持双指缩放或双击放大，滑动可瞬间切换到上一张/下一张
+- 同样支持添加视频（相册选择或现场拍摄，拍摄时长上限 60 秒），应用内自带原生控件播放；视频缩略图显示的是一个播放图标，而不是真实的视频帧画面，这样可以避免为了生成预览图而重复下载视频数据
 - 一键复制条目，快速新建一条预填了工地、任务、备注的记录
 - 保存后可随时编辑或删除条目
 - 可在列表视图和照片网格视图之间切换浏览，支持按工地或任务搜索，还可通过顶部的日历选择器直接跳转到指定日期
@@ -33,6 +34,7 @@
 - [Expo Router](https://docs.expo.dev/router/introduction/) 实现基于文件的路由导航
 - [Supabase](https://supabase.com/)（Postgres + Auth + Storage）作为后端 —— 客户端直接访问，通过行级安全策略（RLS）保护数据
 - 离线优先的写入机制：本地队列（[`@react-native-async-storage/async-storage`](https://react-native-async-storage.github.io/async-storage/)），联网后通过 [`@react-native-community/netinfo`](https://github.com/react-native-netinfo/react-native-netinfo) 自动同步
+- [`expo-video`](https://docs.expo.dev/versions/latest/sdk/video/) 用于应用内视频播放
 - [EAS Build](https://docs.expo.dev/build/introduction/) 用于编译和签名 iOS 安装包
 
 ## 项目结构
@@ -50,7 +52,7 @@ supabase/         SQL 迁移脚本，需在 Supabase SQL Editor 中按顺序执�
 
 1. `npm install`
 2. 创建一个 [Supabase](https://supabase.com/) 项目
-3. 在 Supabase 的 SQL Editor 中，**按顺序**运行 `supabase/` 目录下的文件：`schema.sql`、`002_admin_panel.sql`、`003_comments_and_location.sql`、`004_address.sql`
+3. 在 Supabase 的 SQL Editor 中，**按顺序**运行 `supabase/` 目录下的文件：`schema.sql`、`002_admin_panel.sql`、`003_comments_and_location.sql`、`004_address.sql`、`005_videos.sql`
 4. 将 `.env.local.example` 复制为 `.env.local`，填入你的 Supabase 项目 URL 和 anon/publishable key（在 Project Settings → API 中获取）
 5. 运行 `npx expo start`，用 Expo Go 打开；或运行 `npx expo run:ios` 在已连接的设备上进行独立构建
 
@@ -60,7 +62,7 @@ supabase/         SQL 迁移脚本，需在 Supabase SQL Editor 中按顺序执�
 
 这里仅覆盖“写入”场景：浏览记录首次加载时仍需要网络连接，本应用不会缓存已加载过的数据以支持完全离线浏览。对一条已同步条目做的离线编辑会被安全地放入队列，但在同步完成前，该条目自己的详情页不会显示这次修改；只有全新的离线新建条目会完全基于本地数据正常显示。
 
-保存时不会仅凭上传调用没有报错就认为照片已经传成功——之后还会向存储服务确认一遍，因为在网络不稳定时，上传请求有可能在文件并未完整传输的情况下依然"正常返回"。如果这项确认失败，保存会自动回退到同一套离线队列机制，而不是直接报错失败——这样一条记录只会因为真的离线而进入排队等待同步，不会因为网络不稳定就丢失。
+保存时不会仅凭上传调用没有报错就认为照片或视频已经传成功——之后还会向存储服务确认一遍，因为在网络不稳定时，上传请求有可能在文件并未完整传输的情况下依然"正常返回"。如果这项确认失败，保存会自动回退到同一套离线队列机制，而不是直接报错失败——这样一条记录只会因为真的离线而进入排队等待同步，不会因为网络不稳定就丢失。视频文件体积天然更大，所以这一点对视频比对照片更重要。
 
 ## 调试记录：快速保存后照片丢失的问题
 

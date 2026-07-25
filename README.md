@@ -10,6 +10,7 @@ A simple iOS app for logging daily worksite activity — a hands-on cloud portfo
 - Email/password sign-in (Supabase Auth), with each user only ever seeing their own entries
 - Log a daily entry: job site (autocompleted from your recent sites), date, start/finish time (native pickers), comments, tasks (quick-select presets or free text), and the site's GPS location — reverse-geocoded into a plain-English address
 - Attach photos from your library or take them with the camera; tap any photo to view full-size, pinch or double-tap to zoom, and swipe to instantly jump between photos
+- Attach videos the same way (library or camera, recordings capped at 60 seconds), played back in-app with native controls; video tiles show a play icon rather than a real frame thumbnail, to avoid re-downloading video data just to render a preview
 - Duplicate an entry to start a new one prefilled with the same site, tasks, and comments
 - Edit or delete any entry after saving
 - Browse entries as a list or a photo grid, search by site or task, or jump straight to a date with the calendar picker in the header
@@ -33,6 +34,7 @@ A few of these were prioritized for how the app is actually used on a worksite, 
 - [Expo Router](https://docs.expo.dev/router/introduction/) for file-based navigation
 - [Supabase](https://supabase.com/) (Postgres, Auth, Storage) as the backend — accessed directly from the client, secured with row-level security
 - Offline-first writes: an on-device queue ([`@react-native-async-storage/async-storage`](https://react-native-async-storage.github.io/async-storage/)) synced automatically on reconnect ([`@react-native-community/netinfo`](https://github.com/react-native-netinfo/react-native-netinfo))
+- [`expo-video`](https://docs.expo.dev/versions/latest/sdk/video/) for in-app video playback
 - [EAS Build](https://docs.expo.dev/build/introduction/) for compiling and signing the iOS build
 
 ## Project structure
@@ -50,7 +52,7 @@ supabase/         SQL migrations, run in order in the Supabase SQL Editor
 
 1. `npm install`
 2. Create a [Supabase](https://supabase.com/) project.
-3. In the Supabase SQL Editor, run the files in `supabase/` **in order**: `schema.sql`, `002_admin_panel.sql`, `003_comments_and_location.sql`, `004_address.sql`.
+3. In the Supabase SQL Editor, run the files in `supabase/` **in order**: `schema.sql`, `002_admin_panel.sql`, `003_comments_and_location.sql`, `004_address.sql`, `005_videos.sql`.
 4. Copy `.env.local.example` to `.env.local` and fill in your project's URL and anon/publishable key (Project Settings → API).
 5. `npx expo start` and open with Expo Go, or `npx expo run:ios` for a standalone build on a connected device.
 
@@ -60,7 +62,7 @@ Creating, editing, and deleting entries all work without a connection. Changes a
 
 This covers writes only: browsing still needs a connection on first load, since previously-fetched entries aren't cached for fully offline reading. An offline edit to an already-synced entry is queued safely, but that entry's own detail screen won't reflect the change until it syncs — only brand-new offline-created entries render entirely from local data in the meantime.
 
-A save doesn't just trust that a photo upload succeeded — it's verified against storage afterward, since a flaky connection can let the upload call resolve without an error even when the file didn't fully land. If that verification fails, the save falls back to the same offline queue automatically rather than failing outright, so a save never gets lost to a bad connection, only to being genuinely offline in a way that still queues it for later.
+A save doesn't just trust that a photo or video upload succeeded — it's verified against storage afterward, since a flaky connection can let the upload call resolve without an error even when the file didn't fully land. If that verification fails, the save falls back to the same offline queue automatically rather than failing outright, so a save never gets lost to a bad connection, only to being genuinely offline in a way that still queues it for later. Video files are naturally larger, so this matters more for them than for photos.
 
 ## Debugging note: photos missing after a quick save
 
