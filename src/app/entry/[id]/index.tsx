@@ -9,6 +9,7 @@ import { BackButton } from '@/components/back-button';
 import { PhotoViewerModal } from '@/components/photo-viewer-modal';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { VideoPlayerModal } from '@/components/video-player-modal';
 import { Fonts, Spacing } from '@/constants/theme';
 import { formatDateDisplay, formatSavedAt, parseISODate } from '@/lib/date-format';
 import { deleteEntry, getEntry } from '@/lib/entries';
@@ -34,6 +35,7 @@ export default function EntryDetailScreen() {
   const [entry, setEntry] = useState<Entry | null>(null);
   const [loading, setLoading] = useState(true);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [videoViewerUri, setVideoViewerUri] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -190,6 +192,21 @@ export default function EntryDetailScreen() {
             </ThemedView>
           )}
 
+          {entry.video_urls.length > 0 && (
+            <Card label="Videos">
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbStrip}>
+                {entry.video_urls.map((url) => (
+                  <Pressable
+                    key={url}
+                    onPress={() => setVideoViewerUri(url)}
+                    style={[styles.videoTile, { backgroundColor: theme.backgroundSelected }]}>
+                    <SymbolView name="play.fill" size={20} tintColor={theme.text} />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </Card>
+          )}
+
           <Card label="Hours">
             <ThemedText>
               {entry.start_time ?? '—'} to {entry.finish_time ?? '—'}
@@ -226,6 +243,7 @@ export default function EntryDetailScreen() {
         initialIndex={viewerIndex}
         onClose={() => setViewerIndex(null)}
       />
+      <VideoPlayerModal uri={videoViewerUri} onClose={() => setVideoViewerUri(null)} />
     </>
   );
 }
@@ -267,6 +285,14 @@ const styles = StyleSheet.create({
   },
   thumbStrip: { flexDirection: 'row' },
   thumb: { width: 64, height: 64, borderRadius: Spacing.two, marginRight: Spacing.two },
+  videoTile: {
+    width: 64,
+    height: 64,
+    borderRadius: Spacing.two,
+    marginRight: Spacing.two,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   card: {
     borderRadius: Spacing.four,
     padding: Spacing.four,

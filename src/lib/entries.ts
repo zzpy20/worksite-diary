@@ -14,8 +14,9 @@ import { supabase } from '@/lib/supabase';
 import type { Entry, NewEntryInput } from '@/types/entry';
 
 const PHOTOS_BUCKET = 'entry-photos';
+const VIDEOS_BUCKET = 'entry-videos';
 
-/** Thrown when a photo upload couldn't be confirmed — treated as a connectivity issue, not a real error. */
+/** Thrown when a media upload couldn't be confirmed — treated as a connectivity issue, not a real error. */
 class UploadIncompleteError extends Error {}
 
 export async function listEntries(): Promise<Entry[]> {
@@ -72,20 +73,28 @@ export async function listRecentSites(): Promise<string[]> {
   return sites;
 }
 
-async function uploadPhoto(userId: string, uri: string): Promise<string> {
+type MediaKind = 'image' | 'video';
+
+function contentTypeFor(kind: MediaKind, extension: string): string {
+  if (kind === 'image') return `image/${extension === 'jpg' ? 'jpeg' : extension}`;
+  const videoSubtype: Record<string, string> = { mov: 'quicktime', m4v: 'x-m4v', '3gp': '3gpp' };
+  return `video/${videoSubtype[extension] ?? extension}`;
+}
+
+async function uploadFile(bucket: string, kind: MediaKind, userId: string, uri: string): Promise<string> {
   const response = await fetch(uri);
   const arrayBuffer = await response.arrayBuffer();
   if (arrayBuffer.byteLength === 0) {
-    throw new Error('Selected photo could not be read from your device.');
+    throw new Error(`Selected ${kind === 'image' ? 'photo' : 'video'} could not be read from your device.`);
   }
 
-  const extension = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+  const extension = uri.split('.').pop()?.toLowerCase() ?? (kind === 'image' ? 'jpg' : 'mp4');
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
   const path = `${userId}/${filename}`;
 
   const { error: uploadError } = await supabase.storage
-    .from(PHOTOS_BUCKET)
-    .upload(path, arrayBuffer, { contentType: `image/${extension === 'jpg' ? 'jpeg' : extension}` });
+    .from(bucket)
+    .upload(path, arrayBuffer, { contentType: contentTypeFor(kind, extension) });
 
   if (uploadError) throw uploadError;
 
@@ -93,22 +102,44 @@ async function uploadPhoto(userId: string, uri: string): Promise<string> {
   // transfer didn't fully land — confirm the object is actually in storage, at the
   // right size, via Storage's own listing API rather than trusting a public HEAD
   // fetch (which depends on CDN header behavior we don't fully control).
-  const { data: listing, error: listError } = await supabase.storage
-    .from(PHOTOS_BUCKET)
-    .list(userId, { search: filename });
+  const { data: listing, error: listError } = await supabase.storage.from(bucket).list(userId, { search: filename });
   const stored = listing?.find((f) => f.name === filename);
   if (listError || !stored || stored.metadata?.size !== arrayBuffer.byteLength) {
-    throw new UploadIncompleteError('Photo upload did not complete.');
+    throw new UploadIncompleteError(`${kind === 'image' ? 'Photo' : 'Video'} upload did not complete.`);
   }
 
-  const { data } = supabase.storage.from(PHOTOS_BUCKET).getPublicUrl(path);
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
   return data.publicUrl;
 }
 
-function pathFromPublicUrl(url: string): string | null {
-  const marker = `/${PHOTOS_BUCKET}/`;
+const uploadPhoto = (userId: string, uri: string) => uploadFile(PHOTOS_BUCKET, 'image', userId, uri);
+const uploadVideo = (userId: string, uri: string) => uploadFile(VIDEOS_BUCKET, 'video', userId, uri);
+
+function pathFromPublicUrl(bucket: string, url: string): string | null {
+  const marker = `/${bucket}/`;
   const index = url.indexOf(marker);
   return index === -1 ? null : url.slice(index + marker.length);
+}
+
+/**
+ * Splits `uris` into already-uploaded remote URLs (kept as-is) and new local file URIs
+ * (uploaded here), and works out which of `originalUrls` were dropped and need deleting.
+ */
+async function resolveMedia(
+  bucket: string,
+  kind: MediaKind,
+  userId: string,
+  uris: string[],
+  originalUrls: string[]
+): Promise<{ urls: string[]; removedPaths: string[] }> {
+  const keptRemoteUrls = uris.filter((uri) => uri.startsWith('http'));
+  const newLocalUris = uris.filter((uri) => !uri.startsWith('http'));
+  const uploadedUrls = await Promise.all(newLocalUris.map((uri) => uploadFile(bucket, kind, userId, uri)));
+  const removedPaths = originalUrls
+    .filter((url) => !keptRemoteUrls.includes(url))
+    .map((url) => pathFromPublicUrl(bucket, url))
+    .filter((p): p is string => !!p);
+  return { urls: [...keptRemoteUrls, ...uploadedUrls], removedPaths };
 }
 
 function entryFields(input: NewEntryInput) {
@@ -131,6 +162,7 @@ async function queueNewEntry(userId: string, input: NewEntryInput): Promise<Entr
     user_id: userId,
     ...entryFields(input),
     photo_urls: input.photoUris,
+    video_urls: input.videoUris,
     created_at: new Date().toISOString(),
   };
   await queueCreate(entry);
@@ -149,11 +181,14 @@ export async function createEntry(input: NewEntryInput): Promise<Entry> {
   }
 
   try {
-    const photo_urls = await Promise.all(input.photoUris.map((uri) => uploadPhoto(user.id, uri)));
+    const [photo_urls, video_urls] = await Promise.all([
+      Promise.all(input.photoUris.map((uri) => uploadPhoto(user.id, uri))),
+      Promise.all(input.videoUris.map((uri) => uploadVideo(user.id, uri))),
+    ]);
 
     const { data, error } = await supabase
       .from('entries')
-      .insert({ user_id: user.id, ...entryFields(input), photo_urls })
+      .insert({ user_id: user.id, ...entryFields(input), photo_urls, video_urls })
       .select()
       .single();
 
@@ -166,15 +201,20 @@ export async function createEntry(input: NewEntryInput): Promise<Entry> {
 }
 
 async function queueEntryUpdate(id: string, input: NewEntryInput, originalEntry: Entry): Promise<Entry> {
-  const merged = await queueUpdate(id, input, originalEntry.photo_urls);
-  const pendingEntry = merged ?? { ...originalEntry, ...entryFields(input), photo_urls: input.photoUris };
+  const merged = await queueUpdate(id, input, originalEntry.photo_urls, originalEntry.video_urls);
+  const pendingEntry = merged ?? {
+    ...originalEntry,
+    ...entryFields(input),
+    photo_urls: input.photoUris,
+    video_urls: input.videoUris,
+  };
   return { ...pendingEntry, pending: true };
 }
 
 /**
- * `input.photoUris` is the final desired photo list: a mix of already-uploaded
- * remote URLs (kept as-is) and new local file URIs (uploaded here). Any photos in
- * `originalEntry.photo_urls` that are no longer present are deleted from storage.
+ * `input.photoUris`/`input.videoUris` are the final desired media lists: a mix of
+ * already-uploaded remote URLs (kept as-is) and new local file URIs (uploaded here).
+ * Anything in `originalEntry` that's no longer present is deleted from storage.
  */
 export async function updateEntry(id: string, input: NewEntryInput, originalEntry: Entry): Promise<Entry> {
   const {
@@ -188,22 +228,22 @@ export async function updateEntry(id: string, input: NewEntryInput, originalEntr
   }
 
   try {
-    const keptRemoteUrls = input.photoUris.filter((uri) => uri.startsWith('http'));
-    const newLocalUris = input.photoUris.filter((uri) => !uri.startsWith('http'));
-    const uploadedUrls = await Promise.all(newLocalUris.map((uri) => uploadPhoto(user.id, uri)));
-    const photo_urls = [...keptRemoteUrls, ...uploadedUrls];
+    const [photos, videos] = await Promise.all([
+      resolveMedia(PHOTOS_BUCKET, 'image', user.id, input.photoUris, originalEntry.photo_urls),
+      resolveMedia(VIDEOS_BUCKET, 'video', user.id, input.videoUris, originalEntry.video_urls),
+    ]);
 
-    const removedPaths = originalEntry.photo_urls
-      .filter((url) => !keptRemoteUrls.includes(url))
-      .map(pathFromPublicUrl)
-      .filter((p): p is string => !!p);
+    const removedPaths = [...photos.removedPaths];
     if (removedPaths.length > 0) {
       await supabase.storage.from(PHOTOS_BUCKET).remove(removedPaths);
+    }
+    if (videos.removedPaths.length > 0) {
+      await supabase.storage.from(VIDEOS_BUCKET).remove(videos.removedPaths);
     }
 
     const { data, error } = await supabase
       .from('entries')
-      .update({ ...entryFields(input), photo_urls })
+      .update({ ...entryFields(input), photo_urls: photos.urls, video_urls: videos.urls })
       .eq('id', id)
       .select()
       .single();
@@ -226,7 +266,10 @@ export async function deleteEntry(id: string): Promise<void> {
 }
 
 async function syncCreate(entry: Entry): Promise<void> {
-  const photo_urls = await Promise.all(entry.photo_urls.map((uri) => uploadPhoto(entry.user_id, uri)));
+  const [photo_urls, video_urls] = await Promise.all([
+    Promise.all(entry.photo_urls.map((uri) => uploadPhoto(entry.user_id, uri))),
+    Promise.all(entry.video_urls.map((uri) => uploadVideo(entry.user_id, uri))),
+  ]);
   const { error } = await supabase.from('entries').insert({
     id: entry.id,
     user_id: entry.user_id,
@@ -240,33 +283,38 @@ async function syncCreate(entry: Entry): Promise<void> {
     longitude: entry.longitude,
     address: entry.address,
     photo_urls,
+    video_urls,
   });
   if (error) throw error;
 }
 
-async function syncUpdate(id: string, input: NewEntryInput, originalPhotoUrls: string[]): Promise<void> {
+async function syncUpdate(
+  id: string,
+  input: NewEntryInput,
+  originalPhotoUrls: string[],
+  originalVideoUrls: string[]
+): Promise<void> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
   const user = session?.user;
   if (!user) throw new Error('Not signed in');
 
-  const keptRemoteUrls = input.photoUris.filter((uri) => uri.startsWith('http'));
-  const newLocalUris = input.photoUris.filter((uri) => !uri.startsWith('http'));
-  const uploadedUrls = await Promise.all(newLocalUris.map((uri) => uploadPhoto(user.id, uri)));
-  const photo_urls = [...keptRemoteUrls, ...uploadedUrls];
+  const [photos, videos] = await Promise.all([
+    resolveMedia(PHOTOS_BUCKET, 'image', user.id, input.photoUris, originalPhotoUrls),
+    resolveMedia(VIDEOS_BUCKET, 'video', user.id, input.videoUris, originalVideoUrls),
+  ]);
 
-  const removedPaths = originalPhotoUrls
-    .filter((url) => !keptRemoteUrls.includes(url))
-    .map(pathFromPublicUrl)
-    .filter((p): p is string => !!p);
-  if (removedPaths.length > 0) {
-    await supabase.storage.from(PHOTOS_BUCKET).remove(removedPaths);
+  if (photos.removedPaths.length > 0) {
+    await supabase.storage.from(PHOTOS_BUCKET).remove(photos.removedPaths);
+  }
+  if (videos.removedPaths.length > 0) {
+    await supabase.storage.from(VIDEOS_BUCKET).remove(videos.removedPaths);
   }
 
   const { error } = await supabase
     .from('entries')
-    .update({ ...entryFields(input), photo_urls })
+    .update({ ...entryFields(input), photo_urls: photos.urls, video_urls: videos.urls })
     .eq('id', id);
   if (error) throw error;
 }

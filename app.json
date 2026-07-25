@@ -53,7 +53,8 @@
         {
           "locationWhenInUsePermission": "Allow Worksite Diary to access your location so you can log the site's GPS coordinates on an entry."
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

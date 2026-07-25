@@ -11,6 +11,7 @@ export type Entry = {
   longitude: number | null;
   address: string | null;
   photo_urls: string[];
+  video_urls: string[];
   created_at: string;
   /** Client-only: true if this entry has local changes not yet synced to the server. */
   pending?: boolean;
@@ -27,4 +28,5 @@ export type NewEntryInput = {
   longitude: number | null;
   address: string | null;
   photoUris: string[];
+  videoUris: string[];
 };

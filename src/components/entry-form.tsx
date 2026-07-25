@@ -24,6 +24,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { PhotoViewerModal } from '@/components/photo-viewer-modal';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { VideoPlayerModal } from '@/components/video-player-modal';
 import { Spacing } from '@/constants/theme';
 import {
   formatDateDisplay,
@@ -158,6 +159,9 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
   const [photoUris, setPhotoUris] = useState<string[]>(() => [...(initialEntry?.photo_urls ?? [])]);
   const [pickingPhoto, setPickingPhoto] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [videoUris, setVideoUris] = useState<string[]>(() => [...(initialEntry?.video_urls ?? [])]);
+  const [pickingVideo, setPickingVideo] = useState(false);
+  const [videoViewerUri, setVideoViewerUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Block every way off this screen while a save is in flight — the Cancel/Save
@@ -188,6 +192,7 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
     latitude,
     longitude,
     photoUris: [...photoUris],
+    videoUris: [...videoUris],
   });
 
   function isDirty() {
@@ -202,7 +207,9 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
       latitude !== b.latitude ||
       longitude !== b.longitude ||
       photoUris.length !== b.photoUris.length ||
-      photoUris.some((uri, i) => uri !== b.photoUris[i])
+      photoUris.some((uri, i) => uri !== b.photoUris[i]) ||
+      videoUris.length !== b.videoUris.length ||
+      videoUris.some((uri, i) => uri !== b.videoUris[i])
     );
   }
 
@@ -234,6 +241,7 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
     .slice(0, 5);
   const showSiteSuggestions = siteFocused && filteredSiteSuggestions.length > 0;
   const hasLocalPhotos = photoUris.some((uri) => !uri.startsWith('http'));
+  const hasLocalVideos = videoUris.some((uri) => !uri.startsWith('http'));
 
   function openDatePicker() {
     if (Platform.OS === 'android') {
@@ -355,6 +363,47 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
     setPhotoUris((prev) => prev.filter((_, i) => i !== index));
   }
 
+  async function pickVideo() {
+    setPickingVideo(true);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Allow photo library access to attach site videos.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'],
+        allowsMultipleSelection: true,
+      });
+      if (!result.canceled) {
+        setVideoUris((prev) => [...prev, ...result.assets.map((a) => a.uri)]);
+      }
+    } finally {
+      setPickingVideo(false);
+    }
+  }
+
+  async function recordVideo() {
+    setPickingVideo(true);
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Allow camera access to record site videos.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['videos'], videoMaxDuration: 60 });
+      if (!result.canceled) {
+        setVideoUris((prev) => [...prev, ...result.assets.map((a) => a.uri)]);
+      }
+    } finally {
+      setPickingVideo(false);
+    }
+  }
+
+  function removeVideo(index: number) {
+    setVideoUris((prev) => prev.filter((_, i) => i !== index));
+  }
+
   function resetForm() {
     setDate(new Date());
     setSite('');
@@ -367,6 +416,7 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
     setLongitude(null);
     setAddress(null);
     setPhotoUris([]);
+    setVideoUris([]);
     baselineRef.current = {
       dateISO: formatDateISO(new Date()),
       site: '',
@@ -377,6 +427,7 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
       latitude: null,
       longitude: null,
       photoUris: [],
+      videoUris: [],
     };
   }
 
@@ -401,7 +452,7 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
   }
 
   async function handleSave() {
-    if (pickingPhoto) return;
+    if (pickingPhoto || pickingVideo) return;
     if (!site.trim()) {
       Alert.alert('Missing site', 'Enter the job site name.');
       return;
@@ -419,6 +470,7 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
         longitude,
         address,
         photoUris,
+        videoUris,
       };
 
       let saved: Entry;
@@ -608,6 +660,39 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
               </Pressable>
             </View>
           </Card>
+
+          <SectionLabel>Videos</SectionLabel>
+          <Card>
+            <View style={styles.photoRow}>
+              {videoUris.map((uri, index) => (
+                <View key={uri} style={styles.photoThumbWrap}>
+                  <Pressable
+                    onPress={() => setVideoViewerUri(uri)}
+                    style={[styles.videoThumb, { backgroundColor: theme.backgroundSelected }]}>
+                    <SymbolView name="play.fill" size={18} tintColor={theme.text} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => removeVideo(index)}
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.removeBadge, pressed && styles.pressed]}>
+                    <ThemedText type="smallBold" style={styles.removeBadgeText}>
+                      ×
+                    </ThemedText>
+                  </Pressable>
+                </View>
+              ))}
+              <Pressable
+                onPress={recordVideo}
+                style={({ pressed }) => [styles.addPhoto, pressed && styles.pressed]}>
+                <SymbolView name="video.fill" size={18} tintColor={theme.text} />
+              </Pressable>
+              <Pressable
+                onPress={pickVideo}
+                style={({ pressed }) => [styles.addPhoto, pressed && styles.pressed]}>
+                <ThemedText type="link">+ Add</ThemedText>
+              </Pressable>
+            </View>
+          </Card>
         </ScrollView>
 
         <ThemedView
@@ -621,19 +706,25 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
               { backgroundColor: theme.backgroundElement },
               pressed && styles.pressed,
             ]}
-            disabled={saving || pickingPhoto}
+            disabled={saving || pickingPhoto || pickingVideo}
             onPress={handleCancel}>
             <ThemedText type="smallBold">Cancel</ThemedText>
           </Pressable>
           <Pressable
             style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}
-            disabled={saving || pickingPhoto}
+            disabled={saving || pickingPhoto || pickingVideo}
             onPress={handleSave}>
-            {saving || pickingPhoto ? (
+            {saving || pickingPhoto || pickingVideo ? (
               <ThemedView style={styles.savingRow}>
                 <ActivityIndicator size="small" color="#ffffff" />
                 <ThemedText type="smallBold" themeColor="background">
-                  {pickingPhoto ? 'Adding photos…' : hasLocalPhotos ? 'Uploading photos…' : 'Saving…'}
+                  {pickingPhoto
+                    ? 'Adding photos…'
+                    : pickingVideo
+                      ? 'Adding videos…'
+                      : hasLocalPhotos || hasLocalVideos
+                        ? 'Uploading…'
+                        : 'Saving…'}
                 </ThemedText>
               </ThemedView>
             ) : (
@@ -646,6 +737,7 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
       </SafeAreaView>
 
       <PhotoViewerModal photos={photoUris} initialIndex={viewerIndex} onClose={() => setViewerIndex(null)} />
+      <VideoPlayerModal uri={videoViewerUri} onClose={() => setVideoViewerUri(null)} />
     </KeyboardAvoidingView>
   );
 }
@@ -712,6 +804,13 @@ const styles = StyleSheet.create({
   },
   photoThumbWrap: { width: 64, height: 64 },
   photoThumb: { width: 64, height: 64, borderRadius: Spacing.two },
+  videoThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: Spacing.two,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   removeBadge: {
     position: 'absolute',
     top: -6,

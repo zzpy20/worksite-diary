@@ -7,7 +7,7 @@ const QUEUE_KEY = 'worksite-diary.pendingQueue';
 
 export type PendingOperation =
   | { type: 'create'; entry: Entry }
-  | { type: 'update'; id: string; input: NewEntryInput; originalPhotoUrls: string[] }
+  | { type: 'update'; id: string; input: NewEntryInput; originalPhotoUrls: string[]; originalVideoUrls: string[] }
   | { type: 'delete'; id: string };
 
 async function loadQueue(): Promise<PendingOperation[]> {
@@ -66,7 +66,12 @@ export async function queueCreate(entry: Entry): Promise<void> {
  * Returns the merged local Entry if this was still an unsynced create (so the caller can
  * render it immediately), or null if it's queued as a normal update against a synced row.
  */
-export async function queueUpdate(id: string, input: NewEntryInput, originalPhotoUrls: string[]): Promise<Entry | null> {
+export async function queueUpdate(
+  id: string,
+  input: NewEntryInput,
+  originalPhotoUrls: string[],
+  originalVideoUrls: string[]
+): Promise<Entry | null> {
   const queue = await loadQueue();
   const createIndex = queue.findIndex((op) => op.type === 'create' && op.entry.id === id);
   if (createIndex !== -1) {
@@ -83,6 +88,7 @@ export async function queueUpdate(id: string, input: NewEntryInput, originalPhot
       longitude: input.longitude,
       address: input.address,
       photo_urls: input.photoUris,
+      video_urls: input.videoUris,
     };
     queue[createIndex] = { type: 'create', entry: merged };
     await saveQueue(queue);
@@ -90,7 +96,7 @@ export async function queueUpdate(id: string, input: NewEntryInput, originalPhot
   }
 
   const filtered = queue.filter((op) => !(op.type === 'update' && op.id === id));
-  filtered.push({ type: 'update', id, input, originalPhotoUrls });
+  filtered.push({ type: 'update', id, input, originalPhotoUrls, originalVideoUrls });
   await saveQueue(filtered);
   return null;
 }
@@ -111,7 +117,7 @@ export async function queueDelete(id: string): Promise<void> {
 
 type SyncHandlers = {
   create: (entry: Entry) => Promise<void>;
-  update: (id: string, input: NewEntryInput, originalPhotoUrls: string[]) => Promise<void>;
+  update: (id: string, input: NewEntryInput, originalPhotoUrls: string[], originalVideoUrls: string[]) => Promise<void>;
   remove: (id: string) => Promise<void>;
 };
 
@@ -124,7 +130,7 @@ export async function flushQueue(handlers: SyncHandlers): Promise<void> {
     const op = queue[0];
     try {
       if (op.type === 'create') await handlers.create(op.entry);
-      else if (op.type === 'update') await handlers.update(op.id, op.input, op.originalPhotoUrls);
+      else if (op.type === 'update') await handlers.update(op.id, op.input, op.originalPhotoUrls, op.originalVideoUrls);
       else await handlers.remove(op.id);
     } catch {
       return;
