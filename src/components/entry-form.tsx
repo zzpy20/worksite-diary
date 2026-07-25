@@ -621,7 +621,7 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
               { backgroundColor: theme.backgroundElement },
               pressed && styles.pressed,
             ]}
-            disabled={saving}
+            disabled={saving || pickingPhoto}
             onPress={handleCancel}>
             <ThemedText type="smallBold">Cancel</ThemedText>
           </Pressable>
@@ -629,11 +629,11 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
             style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}
             disabled={saving || pickingPhoto}
             onPress={handleSave}>
-            {saving ? (
+            {saving || pickingPhoto ? (
               <ThemedView style={styles.savingRow}>
                 <ActivityIndicator size="small" color="#ffffff" />
                 <ThemedText type="smallBold" themeColor="background">
-                  {hasLocalPhotos ? 'Uploading photos…' : 'Saving…'}
+                  {pickingPhoto ? 'Adding photos…' : hasLocalPhotos ? 'Uploading photos…' : 'Saving…'}
                 </ThemedText>
               </ThemedView>
             ) : (
