@@ -15,6 +15,9 @@ import type { Entry, NewEntryInput } from '@/types/entry';
 
 const PHOTOS_BUCKET = 'entry-photos';
 
+/** Thrown when a photo upload couldn't be confirmed — treated as a connectivity issue, not a real error. */
+class UploadIncompleteError extends Error {}
+
 export async function listEntries(): Promise<Entry[]> {
   const [syncedResult, pendingView] = await Promise.all([
     supabase.from('entries').select('*').order('date', { ascending: false }),
@@ -72,6 +75,10 @@ export async function listRecentSites(): Promise<string[]> {
 async function uploadPhoto(userId: string, uri: string): Promise<string> {
   const response = await fetch(uri);
   const arrayBuffer = await response.arrayBuffer();
+  if (arrayBuffer.byteLength === 0) {
+    throw new Error('Selected photo could not be read from your device.');
+  }
+
   const extension = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
   const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
 
@@ -82,6 +89,15 @@ async function uploadPhoto(userId: string, uri: string): Promise<string> {
   if (uploadError) throw uploadError;
 
   const { data } = supabase.storage.from(PHOTOS_BUCKET).getPublicUrl(path);
+
+  // `.upload()` can resolve without an error on a flaky connection even when the
+  // transfer didn't fully land — confirm the file is actually there before trusting it.
+  const verifyResponse = await fetch(data.publicUrl, { method: 'HEAD' });
+  const uploadedLength = Number(verifyResponse.headers.get('content-length') ?? -1);
+  if (!verifyResponse.ok || uploadedLength !== arrayBuffer.byteLength) {
+    throw new UploadIncompleteError('Photo upload did not complete.');
+  }
+
   return data.publicUrl;
 }
 
@@ -105,6 +121,18 @@ function entryFields(input: NewEntryInput) {
   };
 }
 
+async function queueNewEntry(userId: string, input: NewEntryInput): Promise<Entry> {
+  const entry: Entry = {
+    id: Crypto.randomUUID(),
+    user_id: userId,
+    ...entryFields(input),
+    photo_urls: input.photoUris,
+    created_at: new Date().toISOString(),
+  };
+  await queueCreate(entry);
+  return { ...entry, pending: true };
+}
+
 export async function createEntry(input: NewEntryInput): Promise<Entry> {
   const {
     data: { session },
@@ -113,35 +141,38 @@ export async function createEntry(input: NewEntryInput): Promise<Entry> {
   if (!user) throw new Error('Not signed in');
 
   if (!(await isOnline())) {
-    const entry: Entry = {
-      id: Crypto.randomUUID(),
-      user_id: user.id,
-      ...entryFields(input),
-      photo_urls: input.photoUris,
-      created_at: new Date().toISOString(),
-    };
-    await queueCreate(entry);
-    return { ...entry, pending: true };
+    return queueNewEntry(user.id, input);
   }
 
-  const photo_urls = await Promise.all(input.photoUris.map((uri) => uploadPhoto(user.id, uri)));
+  try {
+    const photo_urls = await Promise.all(input.photoUris.map((uri) => uploadPhoto(user.id, uri)));
 
-  const { data, error } = await supabase
-    .from('entries')
-    .insert({ user_id: user.id, ...entryFields(input), photo_urls })
-    .select()
-    .single();
+    const { data, error } = await supabase
+      .from('entries')
+      .insert({ user_id: user.id, ...entryFields(input), photo_urls })
+      .select()
+      .single();
 
-  if (error) throw error;
-  return data as Entry;
+    if (error) throw error;
+    return data as Entry;
+  } catch (err) {
+    if (err instanceof UploadIncompleteError) return queueNewEntry(user.id, input);
+    throw err;
+  }
+}
+
+async function queueEntryUpdate(id: string, input: NewEntryInput, originalEntry: Entry): Promise<Entry> {
+  const merged = await queueUpdate(id, input, originalEntry.photo_urls);
+  const pendingEntry = merged ?? { ...originalEntry, ...entryFields(input), photo_urls: input.photoUris };
+  return { ...pendingEntry, pending: true };
 }
 
 /**
  * `input.photoUris` is the final desired photo list: a mix of already-uploaded
- * remote URLs (kept as-is) and new local file URIs (uploaded here). Any of
- * `originalPhotoUrls` that are no longer present are deleted from storage.
+ * remote URLs (kept as-is) and new local file URIs (uploaded here). Any photos in
+ * `originalEntry.photo_urls` that are no longer present are deleted from storage.
  */
-export async function updateEntry(id: string, input: NewEntryInput, originalPhotoUrls: string[]): Promise<Entry | null> {
+export async function updateEntry(id: string, input: NewEntryInput, originalEntry: Entry): Promise<Entry> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -149,32 +180,36 @@ export async function updateEntry(id: string, input: NewEntryInput, originalPhot
   if (!user) throw new Error('Not signed in');
 
   if (!(await isOnline())) {
-    const merged = await queueUpdate(id, input, originalPhotoUrls);
-    return merged ? { ...merged, pending: true } : null;
+    return queueEntryUpdate(id, input, originalEntry);
   }
 
-  const keptRemoteUrls = input.photoUris.filter((uri) => uri.startsWith('http'));
-  const newLocalUris = input.photoUris.filter((uri) => !uri.startsWith('http'));
-  const uploadedUrls = await Promise.all(newLocalUris.map((uri) => uploadPhoto(user.id, uri)));
-  const photo_urls = [...keptRemoteUrls, ...uploadedUrls];
+  try {
+    const keptRemoteUrls = input.photoUris.filter((uri) => uri.startsWith('http'));
+    const newLocalUris = input.photoUris.filter((uri) => !uri.startsWith('http'));
+    const uploadedUrls = await Promise.all(newLocalUris.map((uri) => uploadPhoto(user.id, uri)));
+    const photo_urls = [...keptRemoteUrls, ...uploadedUrls];
 
-  const removedPaths = originalPhotoUrls
-    .filter((url) => !keptRemoteUrls.includes(url))
-    .map(pathFromPublicUrl)
-    .filter((p): p is string => !!p);
-  if (removedPaths.length > 0) {
-    await supabase.storage.from(PHOTOS_BUCKET).remove(removedPaths);
+    const removedPaths = originalEntry.photo_urls
+      .filter((url) => !keptRemoteUrls.includes(url))
+      .map(pathFromPublicUrl)
+      .filter((p): p is string => !!p);
+    if (removedPaths.length > 0) {
+      await supabase.storage.from(PHOTOS_BUCKET).remove(removedPaths);
+    }
+
+    const { data, error } = await supabase
+      .from('entries')
+      .update({ ...entryFields(input), photo_urls })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as Entry;
+  } catch (err) {
+    if (err instanceof UploadIncompleteError) return queueEntryUpdate(id, input, originalEntry);
+    throw err;
   }
-
-  const { data, error } = await supabase
-    .from('entries')
-    .update({ ...entryFields(input), photo_urls })
-    .eq('id', id)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data as Entry;
 }
 
 export async function deleteEntry(id: string): Promise<void> {

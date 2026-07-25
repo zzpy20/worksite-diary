@@ -33,7 +33,6 @@ import {
 } from '@/lib/date-format';
 import { useTheme } from '@/hooks/use-theme';
 import { createEntry, listRecentSites, updateEntry } from '@/lib/entries';
-import { isOnline } from '@/lib/offline-queue';
 import { addTaskLabel, removeTaskLabel } from '@/lib/task-labels';
 import type { Entry } from '@/types/entry';
 
@@ -395,18 +394,20 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
         photoUris,
       };
 
-      const wasOffline = !(await isOnline());
-
+      let saved: Entry;
       if (mode === 'edit' && entryId) {
-        await updateEntry(entryId, input, initialEntry?.photo_urls ?? []);
+        if (!initialEntry) throw new Error('Missing original entry');
+        saved = await updateEntry(entryId, input, initialEntry);
         router.replace(`/entry/${entryId}`);
       } else {
-        await createEntry(input);
+        saved = await createEntry(input);
         resetForm();
         router.navigate('/');
       }
 
-      if (wasOffline) {
+      // Reflects the actual outcome, not just a pre-save connectivity guess — a save
+      // can still end up queued even when the connection looked fine going in.
+      if (saved.pending) {
         Alert.alert('Saved offline', "This entry will sync automatically once you're back online.");
       }
     } catch (error) {
