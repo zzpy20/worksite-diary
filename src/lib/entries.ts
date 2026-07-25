@@ -80,7 +80,8 @@ async function uploadPhoto(userId: string, uri: string): Promise<string> {
   }
 
   const extension = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
-  const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
+  const path = `${userId}/${filename}`;
 
   const { error: uploadError } = await supabase.storage
     .from(PHOTOS_BUCKET)
@@ -88,16 +89,19 @@ async function uploadPhoto(userId: string, uri: string): Promise<string> {
 
   if (uploadError) throw uploadError;
 
-  const { data } = supabase.storage.from(PHOTOS_BUCKET).getPublicUrl(path);
-
   // `.upload()` can resolve without an error on a flaky connection even when the
-  // transfer didn't fully land — confirm the file is actually there before trusting it.
-  const verifyResponse = await fetch(data.publicUrl, { method: 'HEAD' });
-  const uploadedLength = Number(verifyResponse.headers.get('content-length') ?? -1);
-  if (!verifyResponse.ok || uploadedLength !== arrayBuffer.byteLength) {
+  // transfer didn't fully land — confirm the object is actually in storage, at the
+  // right size, via Storage's own listing API rather than trusting a public HEAD
+  // fetch (which depends on CDN header behavior we don't fully control).
+  const { data: listing, error: listError } = await supabase.storage
+    .from(PHOTOS_BUCKET)
+    .list(userId, { search: filename });
+  const stored = listing?.find((f) => f.name === filename);
+  if (listError || !stored || stored.metadata?.size !== arrayBuffer.byteLength) {
     throw new UploadIncompleteError('Photo upload did not complete.');
   }
 
+  const { data } = supabase.storage.from(PHOTOS_BUCKET).getPublicUrl(path);
   return data.publicUrl;
 }
 

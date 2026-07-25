@@ -3,12 +3,13 @@ import Checkbox from 'expo-checkbox';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useNavigation } from 'expo-router';
 import { SFSymbol, SymbolView } from 'expo-symbols';
 import { PropsWithChildren, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -155,8 +156,22 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
   const [address, setAddress] = useState<string | null>(initialEntry?.address ?? null);
   const [locating, setLocating] = useState(false);
   const [photoUris, setPhotoUris] = useState<string[]>(() => [...(initialEntry?.photo_urls ?? [])]);
+  const [pickingPhoto, setPickingPhoto] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Block every way off this screen while a save is in flight — the Cancel/Save
+  // buttons being disabled doesn't stop the iOS swipe-back gesture or Android's
+  // hardware back button, both of which can pop the screen mid-upload otherwise.
+  const navigation = useNavigation();
+  useEffect(() => {
+    navigation.setOptions({ gestureEnabled: !saving });
+  }, [navigation, saving]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => saving);
+    return () => sub.remove();
+  }, [saving]);
 
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showStartPicker, setShowStartPicker] = useState(false);
@@ -298,30 +313,40 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
   }
 
   async function pickPhoto() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo library access to attach site photos.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.6,
-      allowsMultipleSelection: true,
-    });
-    if (!result.canceled) {
-      setPhotoUris((prev) => [...prev, ...result.assets.map((a) => a.uri)]);
+    setPickingPhoto(true);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Allow photo library access to attach site photos.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.6,
+        allowsMultipleSelection: true,
+      });
+      if (!result.canceled) {
+        setPhotoUris((prev) => [...prev, ...result.assets.map((a) => a.uri)]);
+      }
+    } finally {
+      setPickingPhoto(false);
     }
   }
 
   async function takePhoto() {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow camera access to take site photos.');
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.6 });
-    if (!result.canceled) {
-      setPhotoUris((prev) => [...prev, ...result.assets.map((a) => a.uri)]);
+    setPickingPhoto(true);
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Allow camera access to take site photos.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({ quality: 0.6 });
+      if (!result.canceled) {
+        setPhotoUris((prev) => [...prev, ...result.assets.map((a) => a.uri)]);
+      }
+    } finally {
+      setPickingPhoto(false);
     }
   }
 
@@ -375,6 +400,7 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
   }
 
   async function handleSave() {
+    if (pickingPhoto) return;
     if (!site.trim()) {
       Alert.alert('Missing site', 'Enter the job site name.');
       return;
@@ -600,11 +626,15 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
           </Pressable>
           <Pressable
             style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}
-            disabled={saving}
+            disabled={saving || pickingPhoto}
             onPress={handleSave}>
-            <ThemedText type="smallBold" themeColor="background" style={styles.saveButtonText}>
-              {saving ? 'Saving…' : mode === 'edit' ? 'Save Changes' : 'Save Entry'}
-            </ThemedText>
+            {saving ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <ThemedText type="smallBold" themeColor="background" style={styles.saveButtonText}>
+                {mode === 'edit' ? 'Save Changes' : 'Save Entry'}
+              </ThemedText>
+            )}
           </Pressable>
         </ThemedView>
       </SafeAreaView>
