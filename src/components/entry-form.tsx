@@ -5,7 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { SFSymbol, SymbolView } from 'expo-symbols';
-import { PropsWithChildren, useState } from 'react';
+import { PropsWithChildren, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,13 +17,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BackButton } from '@/components/back-button';
 import { PhotoViewerModal } from '@/components/photo-viewer-modal';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, Spacing } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
 import {
   formatDateDisplay,
   formatDateISO,
@@ -38,6 +37,8 @@ import type { Entry } from '@/types/entry';
 
 const TASK_PRESETS = ['Waterproofing', 'Epoxy', 'PVC Membrane'];
 const DIVIDER_COLOR = 'rgba(128,128,128,0.18)';
+// Height + bottom margin of the floating pill-style tab bar, on top of the home-indicator inset.
+const FLOATING_TAB_BAR_CLEARANCE = 60;
 
 function initialCheckedTasks(tasks: string | null | undefined) {
   const parts = (tasks ?? '').split(',').map((s) => s.trim());
@@ -116,6 +117,7 @@ type Props = {
 
 export function EntryForm({ mode, entryId, initialEntry }: Props) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const [date, setDate] = useState(() => (initialEntry ? parseISODate(initialEntry.date) : new Date()));
   const [site, setSite] = useState(initialEntry?.site ?? '');
   const [startTime, setStartTime] = useState<Date | null>(() =>
@@ -140,6 +142,35 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showFinishPicker, setShowFinishPicker] = useState(false);
+
+  // Snapshot of the form's starting values, used to detect unsaved changes on Cancel.
+  const baselineRef = useRef({
+    dateISO: formatDateISO(date),
+    site,
+    startTime: startTime ? formatTimeDisplay(startTime) : '',
+    finishTime: finishTime ? formatTimeDisplay(finishTime) : '',
+    comments,
+    tasks,
+    latitude,
+    longitude,
+    photoUris: [...photoUris],
+  });
+
+  function isDirty() {
+    const b = baselineRef.current;
+    return (
+      formatDateISO(date) !== b.dateISO ||
+      site.trim() !== b.site.trim() ||
+      (startTime ? formatTimeDisplay(startTime) : '') !== b.startTime ||
+      (finishTime ? formatTimeDisplay(finishTime) : '') !== b.finishTime ||
+      comments.trim() !== b.comments.trim() ||
+      tasks.trim() !== b.tasks.trim() ||
+      latitude !== b.latitude ||
+      longitude !== b.longitude ||
+      photoUris.length !== b.photoUris.length ||
+      photoUris.some((uri, i) => uri !== b.photoUris[i])
+    );
+  }
 
   function openDatePicker() {
     if (Platform.OS === 'android') {
@@ -263,6 +294,37 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
     setLongitude(null);
     setAddress(null);
     setPhotoUris([]);
+    baselineRef.current = {
+      dateISO: formatDateISO(new Date()),
+      site: '',
+      startTime: '',
+      finishTime: '',
+      comments: '',
+      tasks: '',
+      latitude: null,
+      longitude: null,
+      photoUris: [],
+    };
+  }
+
+  function leave() {
+    if (mode === 'edit') {
+      router.back();
+    } else {
+      resetForm();
+      router.navigate('/');
+    }
+  }
+
+  function handleCancel() {
+    if (!isDirty()) {
+      leave();
+      return;
+    }
+    Alert.alert('Discard changes?', 'Your unsaved changes will be lost.', [
+      { text: 'Keep Editing', style: 'cancel' },
+      { text: 'Discard', style: 'destructive', onPress: leave },
+    ]);
   }
 
   async function handleSave() {
@@ -303,9 +365,7 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <SafeAreaView style={styles.flex} edges={['top']}>
-        <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: BottomTabInset + Spacing.five }]}>
-          {mode === 'edit' && <BackButton />}
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Spacing.five }]}>
           {mode === 'create' && (
             <ThemedText type="title" style={styles.header}>
               New Entry
@@ -448,7 +508,19 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
               </Pressable>
             </View>
           </Card>
+        </ScrollView>
 
+        <ThemedView style={[styles.footer, { paddingBottom: insets.bottom + FLOATING_TAB_BAR_CLEARANCE }]}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.cancelButton,
+              { backgroundColor: theme.backgroundElement },
+              pressed && styles.pressed,
+            ]}
+            disabled={saving}
+            onPress={handleCancel}>
+            <ThemedText type="smallBold">Cancel</ThemedText>
+          </Pressable>
           <Pressable
             style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}
             disabled={saving}
@@ -457,7 +529,7 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
               {saving ? 'Saving…' : mode === 'edit' ? 'Save Changes' : 'Save Entry'}
             </ThemedText>
           </Pressable>
-        </ScrollView>
+        </ThemedView>
       </SafeAreaView>
 
       <PhotoViewerModal photos={photoUris} initialIndex={viewerIndex} onClose={() => setViewerIndex(null)} />
@@ -532,12 +604,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: DIVIDER_COLOR,
   },
+  footer: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.two,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: DIVIDER_COLOR,
+  },
+  cancelButton: {
+    flex: 1,
+    borderRadius: Spacing.three,
+    paddingVertical: Spacing.three,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   saveButton: {
+    flex: 2,
     backgroundColor: '#208AEF',
     borderRadius: Spacing.three,
     paddingVertical: Spacing.three,
     alignItems: 'center',
-    marginTop: Spacing.five,
+    justifyContent: 'center',
   },
   saveButtonText: { textAlign: 'center' },
   pressed: { opacity: 0.7 },
