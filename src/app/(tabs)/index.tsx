@@ -14,13 +14,27 @@ import { listEntries } from '@/lib/entries';
 import { useTheme } from '@/hooks/use-theme';
 import type { Entry } from '@/types/entry';
 
+const GRID_COLUMNS = 2;
+const GRID_PLACEHOLDER_ID = '__placeholder__';
+
+type ListItem = Entry | { id: typeof GRID_PLACEHOLDER_ID };
+
+function isPlaceholder(item: ListItem): item is { id: typeof GRID_PLACEHOLDER_ID } {
+  return item.id === GRID_PLACEHOLDER_ID;
+}
+
+function formatDateShort(iso: string): string {
+  return parseISODate(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
 export default function HomeScreen() {
   const theme = useTheme();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [jumpDate, setJumpDate] = useState(new Date());
-  const listRef = useRef<FlatList<Entry>>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const listRef = useRef<FlatList<ListItem>>(null);
 
   const load = useCallback(async () => {
     try {
@@ -75,30 +89,51 @@ export default function HomeScreen() {
     );
   }
 
+  const displayData: ListItem[] =
+    viewMode === 'grid' && entries.length % GRID_COLUMNS !== 0
+      ? [...entries, { id: GRID_PLACEHOLDER_ID }]
+      : entries;
+
   return (
     <ThemedView style={styles.flex}>
       <SafeAreaView style={styles.flex} edges={['top']}>
         <ThemedView style={styles.headerRow}>
           <ThemedText type="title">Diary</ThemedText>
-          {entries.length > 0 &&
-            (Platform.OS === 'android' ? (
-              <Pressable onPress={openAndroidDatePicker} hitSlop={8} style={({ pressed }) => pressed && styles.pressed}>
-                <SymbolView name="calendar" size={22} tintColor={theme.text} />
+          {entries.length > 0 && (
+            <ThemedView style={styles.headerActions}>
+              <Pressable
+                onPress={() => setViewMode((mode) => (mode === 'list' ? 'grid' : 'list'))}
+                hitSlop={8}
+                style={({ pressed }) => pressed && styles.pressed}>
+                <SymbolView
+                  name={viewMode === 'list' ? 'square.grid.2x2' : 'list.bullet'}
+                  size={22}
+                  tintColor={theme.text}
+                />
               </Pressable>
-            ) : (
-              <DateTimePicker
-                value={jumpDate}
-                mode="date"
-                display="compact"
-                onChange={(_event, selected) => handleDatePicked(selected)}
-              />
-            ))}
+              {Platform.OS === 'android' ? (
+                <Pressable onPress={openAndroidDatePicker} hitSlop={8} style={({ pressed }) => pressed && styles.pressed}>
+                  <SymbolView name="calendar" size={22} tintColor={theme.text} />
+                </Pressable>
+              ) : (
+                <DateTimePicker
+                  value={jumpDate}
+                  mode="date"
+                  display="compact"
+                  onChange={(_event, selected) => handleDatePicked(selected)}
+                />
+              )}
+            </ThemedView>
+          )}
         </ThemedView>
 
         <FlatList
           ref={listRef}
-          data={entries}
+          key={viewMode}
+          data={displayData}
           keyExtractor={(item) => item.id}
+          numColumns={viewMode === 'grid' ? GRID_COLUMNS : 1}
+          columnWrapperStyle={viewMode === 'grid' ? styles.gridRow : undefined}
           contentContainerStyle={[styles.listContent, { paddingBottom: BottomTabInset + Spacing.four }]}
           refreshControl={
             <RefreshControl
@@ -110,7 +145,8 @@ export default function HomeScreen() {
             />
           }
           onScrollToIndexFailed={(info) => {
-            listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+            const rowIndex = viewMode === 'grid' ? Math.floor(info.index / GRID_COLUMNS) : info.index;
+            listRef.current?.scrollToOffset({ offset: info.averageItemLength * rowIndex, animated: false });
             setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, animated: true }), 100);
           }}
           ListEmptyComponent={
@@ -120,30 +156,54 @@ export default function HomeScreen() {
               </ThemedText>
             </ThemedView>
           }
-          renderItem={({ item }) => (
-            <Pressable
-              onPress={() => router.push(`/entry/${item.id}`)}
-              style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
-              <ThemedView type="backgroundElement" style={styles.card}>
-                {item.photo_urls[0] ? (
-                  <Image source={{ uri: item.photo_urls[0] }} style={styles.thumb} />
-                ) : (
-                  <ThemedView type="backgroundSelected" style={styles.thumb} />
-                )}
-                <ThemedView style={styles.cardText} type="backgroundElement">
-                  <ThemedText type="smallBold">{item.site || 'Untitled site'}</ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {item.date} · Saved {formatSavedAt(item.created_at)}
-                  </ThemedText>
-                  {item.tasks ? (
-                    <ThemedText type="small" numberOfLines={1} themeColor="textSecondary">
-                      {item.tasks}
+          renderItem={({ item }) =>
+            isPlaceholder(item) ? (
+              <ThemedView style={styles.gridItem} />
+            ) : viewMode === 'grid' ? (
+              <Pressable
+                onPress={() => router.push(`/entry/${item.id}`)}
+                style={({ pressed }) => [styles.gridItem, pressed && styles.pressed]}>
+                <ThemedView type="backgroundElement" style={styles.gridCard}>
+                  {item.photo_urls[0] ? (
+                    <Image source={{ uri: item.photo_urls[0] }} style={styles.gridThumb} />
+                  ) : (
+                    <ThemedView type="backgroundSelected" style={styles.gridThumb} />
+                  )}
+                  <ThemedView style={styles.gridText} type="backgroundElement">
+                    <ThemedText type="small" themeColor="textSecondary">
+                      {formatDateShort(item.date)}
                     </ThemedText>
-                  ) : null}
+                    <ThemedText type="smallBold" numberOfLines={1}>
+                      {item.site || 'Untitled site'}
+                    </ThemedText>
+                  </ThemedView>
                 </ThemedView>
-              </ThemedView>
-            </Pressable>
-          )}
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => router.push(`/entry/${item.id}`)}
+                style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+                <ThemedView type="backgroundElement" style={styles.card}>
+                  {item.photo_urls[0] ? (
+                    <Image source={{ uri: item.photo_urls[0] }} style={styles.thumb} />
+                  ) : (
+                    <ThemedView type="backgroundSelected" style={styles.thumb} />
+                  )}
+                  <ThemedView style={styles.cardText} type="backgroundElement">
+                    <ThemedText type="smallBold">{item.site || 'Untitled site'}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      {item.date} · Saved {formatSavedAt(item.created_at)}
+                    </ThemedText>
+                    {item.tasks ? (
+                      <ThemedText type="small" numberOfLines={1} themeColor="textSecondary">
+                        {item.tasks}
+                      </ThemedText>
+                    ) : null}
+                  </ThemedView>
+                </ThemedView>
+              </Pressable>
+            )
+          }
         />
       </SafeAreaView>
     </ThemedView>
@@ -161,6 +221,7 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.three,
     paddingBottom: Spacing.two,
   },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
   listContent: { paddingHorizontal: Spacing.three, gap: Spacing.two },
   empty: { paddingHorizontal: Spacing.four, paddingTop: Spacing.six, alignItems: 'center' },
   row: { marginBottom: Spacing.two },
@@ -174,4 +235,9 @@ const styles = StyleSheet.create({
   },
   thumb: { width: 56, height: 56, borderRadius: Spacing.two },
   cardText: { flex: 1, gap: 2 },
+  gridRow: { gap: Spacing.two },
+  gridItem: { flex: 1, marginBottom: Spacing.two },
+  gridCard: { borderRadius: Spacing.three, overflow: 'hidden' },
+  gridThumb: { width: '100%', aspectRatio: 1 },
+  gridText: { padding: Spacing.two, gap: 2 },
 });
