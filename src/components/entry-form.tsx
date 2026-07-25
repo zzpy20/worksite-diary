@@ -251,6 +251,20 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
     setPhotoUris((prev) => prev.filter((_, i) => i !== index));
   }
 
+  function resetForm() {
+    setDate(new Date());
+    setSite('');
+    setStartTime(null);
+    setFinishTime(null);
+    setComments('');
+    setTasks('');
+    setCheckedTasks(initialCheckedTasks(undefined));
+    setLatitude(null);
+    setLongitude(null);
+    setAddress(null);
+    setPhotoUris([]);
+  }
+
   async function handleSave() {
     if (!site.trim()) {
       Alert.alert('Missing site', 'Enter the job site name.');
@@ -276,6 +290,7 @@ export function EntryForm({ mode, entryId, initialEntry }: Props) {
         router.replace(`/entry/${entryId}`);
       } else {
         await createEntry(input);
+        resetForm();
         router.navigate('/');
       }
     } catch (error) {
