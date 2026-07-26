@@ -236,9 +236,9 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
   }
 
   const siteQuery = site.trim().toLowerCase();
-  const filteredSiteSuggestions = siteSuggestions
-    .filter((s) => s.toLowerCase() !== siteQuery && (siteQuery === '' || s.toLowerCase().includes(siteQuery)))
-    .slice(0, 5);
+  const filteredSiteSuggestions = siteQuery
+    ? siteSuggestions.filter((s) => s.toLowerCase() !== siteQuery && s.toLowerCase().startsWith(siteQuery)).slice(0, 5)
+    : [];
   const showSiteSuggestions = siteFocused && filteredSiteSuggestions.length > 0;
   const hasLocalPhotos = photoUris.some((uri) => !uri.startsWith('http'));
   const hasLocalVideos = videoUris.some((uri) => !uri.startsWith('http'));
@@ -539,7 +539,10 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
               {filteredSiteSuggestions.map((suggestion, index) => (
                 <Pressable
                   key={suggestion}
-                  onPress={() => selectSiteSuggestion(suggestion)}
+                  // onPressIn (touch-down), not onPress (touch-up) — the field's blur
+                  // event races the same touch, and a full tap gesture can lose that
+                  // race and never fire if the list gets hidden mid-gesture.
+                  onPressIn={() => selectSiteSuggestion(suggestion)}
                   style={({ pressed }) => [
                     styles.suggestionItem,
                     index > 0 && styles.suggestionItemDivider,
