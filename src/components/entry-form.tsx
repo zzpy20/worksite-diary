@@ -391,7 +391,14 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
         Alert.alert('Permission needed', 'Allow camera access to record site videos.');
         return;
       }
-      const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['videos'], videoMaxDuration: 60 });
+      // Duration + quality both kept conservative so a recording reliably stays under
+      // the 45MB upload limit (see MAX_UPLOAD_BYTES in lib/entries.ts) — better than
+      // capping duration alone and having a recording fail the size check afterward.
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['videos'],
+        videoMaxDuration: 45,
+        videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+      });
       if (!result.canceled) {
         setVideoUris((prev) => [...prev, ...result.assets.map((a) => a.uri)]);
       }

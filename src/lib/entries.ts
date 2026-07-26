@@ -77,11 +77,12 @@ type MediaKind = 'image' | 'video';
 
 // Videos in particular can be large (an unedited library clip, not a duration-capped
 // recording) — reject oversized files client-side with a clear message instead of
-// letting a doomed multi-hundred-MB upload fail mysteriously against Supabase's bucket
-// size limit (see supabase/006_video_size_limit.sql for the matching server-side cap).
+// letting a doomed upload fail mysteriously against Supabase's bucket size limit (see
+// supabase/006_video_size_limit.sql). 45MB leaves headroom under Supabase's free-tier
+// project-wide cap of 50MB, which applies regardless of what the bucket itself allows.
 const MAX_UPLOAD_BYTES: Record<MediaKind, number> = {
   image: 20 * 1024 * 1024,
-  video: 200 * 1024 * 1024,
+  video: 45 * 1024 * 1024,
 };
 
 function contentTypeFor(kind: MediaKind, extension: string): string {
