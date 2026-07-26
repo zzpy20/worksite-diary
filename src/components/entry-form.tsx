@@ -244,6 +244,9 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
   const hasLocalVideos = videoUris.some((uri) => !uri.startsWith('http'));
 
   function openDatePicker() {
+    // Dismiss first — otherwise, if a text field was focused, the inline picker
+    // renders below content still hidden behind the open keyboard, off-screen.
+    Keyboard.dismiss();
     if (Platform.OS === 'android') {
       DateTimePickerAndroid.open({
         value: date,
@@ -258,6 +261,7 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
   }
 
   function openStartPicker() {
+    Keyboard.dismiss();
     if (Platform.OS === 'android') {
       DateTimePickerAndroid.open({
         value: startTime ?? new Date(),
@@ -273,6 +277,7 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
   }
 
   function openFinishPicker() {
+    Keyboard.dismiss();
     if (Platform.OS === 'android') {
       DateTimePickerAndroid.open({
         value: finishTime ?? new Date(),
@@ -506,7 +511,9 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <SafeAreaView style={styles.flex} edges={['top']}>
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Spacing.five }]}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={[styles.content, { paddingBottom: Spacing.five }]}>
           {mode === 'create' && (
             <ThemedText type="title" style={styles.header}>
               New Entry

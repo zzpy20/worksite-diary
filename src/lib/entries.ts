@@ -65,8 +65,11 @@ export async function listRecentSites(): Promise<string[]> {
   const sites: string[] = [];
   for (const row of data ?? []) {
     const site = row.site?.trim();
-    if (site && !seen.has(site)) {
-      seen.add(site);
+    const key = site?.toLowerCase();
+    // Case-insensitive dedup — "Boggo Road" and "boggo road" are the same site. Rows
+    // are already most-recent-first, so the first casing seen is the one kept.
+    if (site && key && !seen.has(key)) {
+      seen.add(key);
       sites.push(site);
     }
   }
