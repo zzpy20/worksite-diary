@@ -88,6 +88,17 @@ Right after video support shipped: recording a video with the camera worked fine
 
 **Worth remembering for next time:** if a future upload type or picker flow gets added (documents, audio, etc.), don't assume multi-select behaves the same as it does for photos — test it specifically. Apple's picker has per-media-type quirks like this one that aren't obvious from the API surface alone.
 
+## Debugging note: "the video issue is back" — except it wasn't the same issue
+
+A later report said picking a video from the library had stopped working again — the same symptom as above (no video tile, silent no-op) — which made it look like a regression of the already-fixed multi-select bug.
+
+6. **Assumed regression, checked first.** Before reapplying the old fix, confirmed the single-selection change from before was still fully in place and working as designed. It was — this was a different failure wearing the same symptom.
+7. **A detour into suspecting the build itself.** A debug alert placed right after the picker call didn't fire, even after a full Clean Build Folder and fresh install — which looked exactly like the "stale build" scare from step 3 above, all over again. Time went into inspecting the Xcode Run Script build phase and manually running `expo export:embed` to confirm current source really does make it into a real bundle (it did). The build was never the problem.
+8. **The actual gap: a `try` with no `catch`.** The picker call sat inside a `try/finally` with no `catch` clause. Any exception thrown between the picker resolving and the debug alert was silently swallowed — `finally` still reset the busy state, so the Save button looked completely normal the whole time, and nothing else ever surfaced anywhere. Adding a `catch` that alerts the raw error immediately revealed the real cause: `PHPhotosErrorDomain error 3164`.
+9. **The real cause.** That error is Apple's Photos framework failing to export a video that isn't fully downloaded to the device — routine for anyone with "Optimize iPhone Storage" enabled, where older library videos are kept in iCloud and fetched on demand. Confirmed directly: a video just recorded (fully local) always picked fine; only older, iCloud-offloaded videos failed. Fixed by catching that specific error and showing a clear message telling the user to open the video in Photos (or retry on Wi-Fi) to let it download first, instead of failing with no feedback at all.
+
+**Also worth remembering:** a `try/finally` with no `catch` doesn't just leave an error unhandled — it makes it *invisible*. `finally` still cleans up state, so nothing looks stuck, while the exception itself vanishes with no console output and no crash. Any async operation with a user-visible outcome should have an explicit `catch`, even a trivial one that just alerts the raw error — cheap insurance against exactly this kind of multi-hour detour.
+
 ## Admin panel
 
 A lightweight static web app (plain HTML/CSS/JS, no build step) lets an account flagged `is_admin` in the `profiles` table sign in and manage every user's entries — search, inline edit, photo removal, and delete. It talks to the same Supabase project directly, authorized entirely through row-level security policies (see `supabase/002_admin_panel.sql`), so it needs no backend server of its own.

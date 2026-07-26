@@ -383,6 +383,18 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
       if (!result.canceled) {
         setVideoUris((prev) => [...prev, ...result.assets.map((a) => a.uri)]);
       }
+    } catch (error) {
+      // iOS fails to export a video that's been offloaded to iCloud (e.g. by "Optimize
+      // iPhone Storage") with this opaque native error instead of downloading it first.
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('PHPhotosErrorDomain') && message.includes('3164')) {
+        Alert.alert(
+          "Video isn't downloaded yet",
+          "This video is stored in iCloud and hasn't fully downloaded to your phone. Open it in the Photos app to download it (or try again on Wi-Fi), then pick it here."
+        );
+      } else {
+        Alert.alert('Could not add video', message);
+      }
     } finally {
       setPickingVideo(false);
     }
