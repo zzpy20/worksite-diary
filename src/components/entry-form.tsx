@@ -371,10 +371,10 @@ export function EntryForm({ mode, entryId, initialEntry, seed }: Props) {
         Alert.alert('Permission needed', 'Allow photo library access to attach site videos.');
         return;
       }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['videos'],
-        allowsMultipleSelection: true,
-      });
+      // Single-selection: iOS's picker can treat a tap on a video thumbnail as "preview"
+      // rather than "select" in multi-select mode, so Add can confirm zero items even
+      // after tapping a video. Single-select taps directly pick and dismiss instead.
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'] });
       if (!result.canceled) {
         setVideoUris((prev) => [...prev, ...result.assets.map((a) => a.uri)]);
       }

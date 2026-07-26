@@ -75,6 +75,15 @@ export async function listRecentSites(): Promise<string[]> {
 
 type MediaKind = 'image' | 'video';
 
+// Videos in particular can be large (an unedited library clip, not a duration-capped
+// recording) — reject oversized files client-side with a clear message instead of
+// letting a doomed multi-hundred-MB upload fail mysteriously against Supabase's bucket
+// size limit (see supabase/006_video_size_limit.sql for the matching server-side cap).
+const MAX_UPLOAD_BYTES: Record<MediaKind, number> = {
+  image: 20 * 1024 * 1024,
+  video: 200 * 1024 * 1024,
+};
+
 function contentTypeFor(kind: MediaKind, extension: string): string {
   if (kind === 'image') return `image/${extension === 'jpg' ? 'jpeg' : extension}`;
   const videoSubtype: Record<string, string> = { mov: 'quicktime', m4v: 'x-m4v', '3gp': '3gpp' };
@@ -86,6 +95,12 @@ async function uploadFile(bucket: string, kind: MediaKind, userId: string, uri: 
   const arrayBuffer = await response.arrayBuffer();
   if (arrayBuffer.byteLength === 0) {
     throw new Error(`Selected ${kind === 'image' ? 'photo' : 'video'} could not be read from your device.`);
+  }
+  if (arrayBuffer.byteLength > MAX_UPLOAD_BYTES[kind]) {
+    const limitMb = Math.round(MAX_UPLOAD_BYTES[kind] / (1024 * 1024));
+    throw new Error(
+      `This ${kind === 'image' ? 'photo' : 'video'} is larger than the ${limitMb}MB limit. Try a shorter clip or lower quality.`
+    );
   }
 
   const extension = uri.split('.').pop()?.toLowerCase() ?? (kind === 'image' ? 'jpg' : 'mp4');
