@@ -23,9 +23,15 @@ const ssrSafeStorage = {
     typeof window === 'undefined' ? Promise.resolve() : AsyncStorage.removeItem(key),
 };
 
+// Pinned explicitly (this matches supabase-js's own default derivation) so auth-context.tsx
+// can read the persisted session directly from AsyncStorage under this exact key when
+// opening offline, without depending on an internal default that could change.
+export const authStorageKey = `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`;
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: ssrSafeStorage,
+    storageKey: authStorageKey,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,

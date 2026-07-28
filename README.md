@@ -64,6 +64,12 @@ This covers writes only: browsing still needs a connection on first load, since 
 
 A save doesn't just trust that a photo or video upload succeeded — it's verified against storage afterward, since a flaky connection can let the upload call resolve without an error even when the file didn't fully land. If that verification fails, the save falls back to the same offline queue automatically rather than failing outright, so a save never gets lost to a bad connection, only to being genuinely offline in a way that still queues it for later. Video files are naturally larger, so this matters more for them than for photos.
 
+Opening the app itself also works offline and stays logged in — see the improvement log below for why that wasn't always true.
+
+## Improvement: opening the app with no internet at all
+
+The app's session is stored on-device and was never the blocker here — the actual cause was more specific. Supabase's `getSession()` call transparently refreshes the access token first whenever it's near or past expiry, which is true on most cold starts since tokens only last about an hour (e.g. opening the app the next day). That refresh is a real network request, and with no connection at all it just retried with backoff for up to ~30 seconds — with nothing on screen but a bare spinner and no timeout, no offline detection, and no fallback. That's what made the app look like it couldn't open at all rather than merely being slow: a `NetInfo` check (already used elsewhere for the offline write queue) now runs first, and when there's no connection, the persisted session is read directly from storage instead of going through that refresh — so the app opens immediately, already logged in, using whatever was last cached. A real refresh still happens normally the next time it's online.
+
 ## Debugging note: photos missing after a quick save
 
 Worth documenting since it took several passes to actually nail: saving an entry (especially with multiple photos, or right after picking them) could navigate away successfully but without the photos actually attached — no error, no warning, just missing. The investigation went through a few wrong turns before landing on the real cause:
